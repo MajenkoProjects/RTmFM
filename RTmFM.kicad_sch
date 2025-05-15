@@ -8170,6 +8170,16 @@
 	)
 	(wire
 		(pts
+			(xy 406.4 181.61) (xy 406.4 177.8)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "46f3897e-74ae-47f2-83b3-ae15ab62ab8b")
+	)
+	(wire
+		(pts
 			(xy 372.11 309.88) (xy 381 309.88)
 		)
 		(stroke
@@ -8617,6 +8627,16 @@
 			(type default)
 		)
 		(uuid "6811387c-e1a0-441d-bc31-ca7cdf714a3c")
+	)
+	(wire
+		(pts
+			(xy 400.05 181.61) (xy 406.4 181.61)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "685f187f-58a5-4fd4-badf-d2870fa501e4")
 	)
 	(wire
 		(pts
@@ -10270,16 +10290,6 @@
 	)
 	(wire
 		(pts
-			(xy 198.12 228.6) (xy 208.28 228.6)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "eab9656d-f4ce-4a98-9446-74f72e5bbe42")
-	)
-	(wire
-		(pts
 			(xy 81.28 80.01) (xy 77.47 80.01)
 		)
 		(stroke
@@ -10467,16 +10477,6 @@
 			(type default)
 		)
 		(uuid "fd28890e-68c2-4506-85e6-015de2ab22ba")
-	)
-	(wire
-		(pts
-			(xy 170.18 228.6) (xy 182.88 228.6)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "fde8b845-6c9f-4942-b5bc-291bcf8eae7f")
 	)
 	(wire
 		(pts
@@ -10677,16 +10677,6 @@
 			(justify left bottom)
 		)
 		(uuid "31909b4e-1ffc-48f9-a459-26da4284c8a4")
-	)
-	(label "WRGATE"
-		(at 170.18 228.6 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "325ccb62-d569-4e99-b0c6-e7d2d9e0d6e1")
 	)
 	(label "ocDRV_SLCTD"
 		(at 66.04 144.78 0)
@@ -10947,16 +10937,6 @@
 			(justify left bottom)
 		)
 		(uuid "75be5241-622f-4430-b64e-fab3654ccd09")
-	)
-	(label "RDENA"
-		(at 201.93 228.6 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "7995ad30-73ad-49b9-9bb9-f8daedfec52c")
 	)
 	(label "DRIVE2"
 		(at 165.1 378.46 0)
@@ -12118,7 +12098,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
 			(at 95.25 364.49 0)
 			(effects
 				(font
@@ -13124,7 +13104,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
 			(at 95.25 303.53 0)
 			(effects
 				(font
@@ -13274,7 +13254,7 @@
 	)
 	(symbol
 		(lib_id "74xx:74HC04")
-		(at 190.5 203.2 0)
+		(at 190.5 190.5 0)
 		(unit 2)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -13283,7 +13263,7 @@
 		(fields_autoplaced yes)
 		(uuid "35b77209-55ad-45e6-9a9c-bfd71ef8b2c3")
 		(property "Reference" "U9"
-			(at 190.5 194.31 0)
+			(at 190.5 181.61 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13291,15 +13271,15 @@
 			)
 		)
 		(property "Value" "74HCT04"
-			(at 190.5 196.85 0)
+			(at 190.5 184.15 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
-			(at 190.5 203.2 0)
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
+			(at 190.5 190.5 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13308,7 +13288,7 @@
 			)
 		)
 		(property "Datasheet" "https://assets.nexperia.com/documents/data-sheet/74HC_HCT04.pdf"
-			(at 190.5 203.2 0)
+			(at 190.5 190.5 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13317,7 +13297,7 @@
 			)
 		)
 		(property "Description" "Hex Inverter"
-			(at 190.5 203.2 0)
+			(at 190.5 190.5 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15307,7 +15287,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
 			(at 50.8 341.63 0)
 			(effects
 				(font
@@ -15683,7 +15663,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
 			(at 190.5 241.3 0)
 			(effects
 				(font
@@ -15829,110 +15809,6 @@
 		)
 	)
 	(symbol
-		(lib_id "74xx:74HC04")
-		(at 190.5 228.6 0)
-		(unit 4)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "6daf06d8-d295-46f5-92d1-9f284c26a6cd")
-		(property "Reference" "U9"
-			(at 190.5 219.71 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "74HCT04"
-			(at 190.5 222.25 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
-			(at 190.5 228.6 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "https://assets.nexperia.com/documents/data-sheet/74HC_HCT04.pdf"
-			(at 190.5 228.6 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Hex Inverter"
-			(at 190.5 228.6 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "12"
-			(uuid "4ca74900-cb68-4669-ad62-5c93f1ecad18")
-		)
-		(pin "10"
-			(uuid "6a97056c-4373-418b-821c-3a8ac619cbba")
-		)
-		(pin "2"
-			(uuid "85c8ceb3-bffc-4af7-825d-3a8d2ab2434a")
-		)
-		(pin "1"
-			(uuid "89c99711-a1e5-4822-b230-1606c8430fd3")
-		)
-		(pin "14"
-			(uuid "4c2135bd-f28a-4c76-ade0-706f230add7c")
-		)
-		(pin "7"
-			(uuid "2cdf5367-7cc0-45af-b126-e9fdaa4aba32")
-		)
-		(pin "9"
-			(uuid "e7425166-2f95-46cf-ac5c-0af4ad0c13eb")
-		)
-		(pin "6"
-			(uuid "17f31324-403e-442d-8fcb-3e3158834bcf")
-		)
-		(pin "5"
-			(uuid "50f3419b-aee4-4085-abbf-d1d6dab13357")
-		)
-		(pin "4"
-			(uuid "048a48a2-7da8-4995-9506-ef6c930f1300")
-		)
-		(pin "3"
-			(uuid "2f614a2a-d8e2-4d93-acc0-03439e3fcc10")
-		)
-		(pin "13"
-			(uuid "bd15ee42-b889-4801-ad64-f0b2b963265b")
-		)
-		(pin "11"
-			(uuid "958b0b4e-f560-458e-8a98-e359117ac4c3")
-		)
-		(pin "8"
-			(uuid "7e14e103-fa76-4131-ad11-dc28f8fd665d")
-		)
-		(instances
-			(project ""
-				(path "/616a8cb0-03a5-45c1-b3ff-7922de11d15c"
-					(reference "U9")
-					(unit 4)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:D_Schottky")
 		(at 96.52 228.6 0)
 		(unit 1)
@@ -16070,7 +15946,7 @@
 	)
 	(symbol
 		(lib_id "74xx:74HC04")
-		(at 190.5 190.5 0)
+		(at 190.5 203.2 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -16079,7 +15955,7 @@
 		(fields_autoplaced yes)
 		(uuid "713472ca-2c32-4753-be81-883af252a169")
 		(property "Reference" "U9"
-			(at 190.5 181.61 0)
+			(at 190.5 194.31 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16087,15 +15963,15 @@
 			)
 		)
 		(property "Value" "74HCT04"
-			(at 190.5 184.15 0)
+			(at 190.5 196.85 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
-			(at 190.5 190.5 0)
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
+			(at 190.5 203.2 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16104,7 +15980,7 @@
 			)
 		)
 		(property "Datasheet" "https://assets.nexperia.com/documents/data-sheet/74HC_HCT04.pdf"
-			(at 190.5 190.5 0)
+			(at 190.5 203.2 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16113,7 +15989,7 @@
 			)
 		)
 		(property "Description" "Hex Inverter"
-			(at 190.5 190.5 0)
+			(at 190.5 203.2 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16310,7 +16186,7 @@
 	)
 	(symbol
 		(lib_id "74xx:74LS06")
-		(at 95.25 334.01 0)
+		(at 95.25 349.25 0)
 		(unit 3)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -16318,7 +16194,7 @@
 		(dnp no)
 		(uuid "7cd91089-732d-427c-a987-625d23c6d3bf")
 		(property "Reference" "U10"
-			(at 94.742 325.12 0)
+			(at 94.742 340.36 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16326,15 +16202,15 @@
 			)
 		)
 		(property "Value" "74LS06"
-			(at 95.25 327.66 0)
+			(at 95.25 342.9 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
-			(at 95.25 334.01 0)
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
+			(at 95.25 349.25 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16343,7 +16219,7 @@
 			)
 		)
 		(property "Datasheet" "http://www.ti.com/lit/gpn/sn74LS06"
-			(at 95.25 334.01 0)
+			(at 95.25 349.25 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -16352,7 +16228,7 @@
 			)
 		)
 		(property "Description" "Inverter Open Collect"
-			(at 95.25 334.01 0)
+			(at 95.25 349.25 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17134,7 +17010,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
 			(at 462.28 252.73 0)
 			(effects
 				(font
@@ -17894,7 +17770,7 @@
 	)
 	(symbol
 		(lib_id "74xx:74LS06")
-		(at 95.25 349.25 0)
+		(at 95.25 318.77 0)
 		(unit 4)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -17903,7 +17779,7 @@
 		(fields_autoplaced yes)
 		(uuid "9bd07e9f-2bbc-47aa-85db-7b4c99d021d5")
 		(property "Reference" "U10"
-			(at 95.25 340.36 0)
+			(at 95.25 309.88 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17911,15 +17787,15 @@
 			)
 		)
 		(property "Value" "74LS06"
-			(at 95.25 342.9 0)
+			(at 95.25 312.42 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
-			(at 95.25 349.25 0)
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
+			(at 95.25 318.77 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17928,7 +17804,7 @@
 			)
 		)
 		(property "Datasheet" "http://www.ti.com/lit/gpn/sn74LS06"
-			(at 95.25 349.25 0)
+			(at 95.25 318.77 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17937,7 +17813,7 @@
 			)
 		)
 		(property "Description" "Inverter Open Collect"
-			(at 95.25 349.25 0)
+			(at 95.25 318.77 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18464,7 +18340,7 @@
 	)
 	(symbol
 		(lib_id "74xx:74LS06")
-		(at 95.25 318.77 0)
+		(at 95.25 334.01 0)
 		(unit 2)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -18473,7 +18349,7 @@
 		(fields_autoplaced yes)
 		(uuid "a553a176-2c2f-4b7e-a87f-b9549e06f990")
 		(property "Reference" "U10"
-			(at 95.25 309.88 0)
+			(at 95.25 325.12 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18481,15 +18357,15 @@
 			)
 		)
 		(property "Value" "74LS06"
-			(at 95.25 312.42 0)
+			(at 95.25 327.66 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
-			(at 95.25 318.77 0)
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
+			(at 95.25 334.01 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18498,7 +18374,7 @@
 			)
 		)
 		(property "Datasheet" "http://www.ti.com/lit/gpn/sn74LS06"
-			(at 95.25 318.77 0)
+			(at 95.25 334.01 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18507,7 +18383,7 @@
 			)
 		)
 		(property "Description" "Inverter Open Collect"
-			(at 95.25 318.77 0)
+			(at 95.25 334.01 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -18768,110 +18644,6 @@
 				(path "/616a8cb0-03a5-45c1-b3ff-7922de11d15c"
 					(reference "#PWR056")
 					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "74xx:74HC04")
-		(at 190.5 215.9 0)
-		(unit 3)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "ab8dfeaa-ad35-4273-8afa-8318d3d3dc89")
-		(property "Reference" "U9"
-			(at 190.5 207.01 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "74HCT04"
-			(at 190.5 209.55 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
-			(at 190.5 215.9 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "https://assets.nexperia.com/documents/data-sheet/74HC_HCT04.pdf"
-			(at 190.5 215.9 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Hex Inverter"
-			(at 190.5 215.9 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "12"
-			(uuid "4ca74900-cb68-4669-ad62-5c93f1ecad1b")
-		)
-		(pin "10"
-			(uuid "6a97056c-4373-418b-821c-3a8ac619cbbd")
-		)
-		(pin "2"
-			(uuid "85c8ceb3-bffc-4af7-825d-3a8d2ab2434d")
-		)
-		(pin "1"
-			(uuid "89c99711-a1e5-4822-b230-1606c8430fd6")
-		)
-		(pin "14"
-			(uuid "4c2135bd-f28a-4c76-ade0-706f230add7f")
-		)
-		(pin "7"
-			(uuid "2cdf5367-7cc0-45af-b126-e9fdaa4aba35")
-		)
-		(pin "9"
-			(uuid "e7425166-2f95-46cf-ac5c-0af4ad0c13ee")
-		)
-		(pin "6"
-			(uuid "17f31324-403e-442d-8fcb-3e3158834bd2")
-		)
-		(pin "5"
-			(uuid "50f3419b-aee4-4085-abbf-d1d6dab1335a")
-		)
-		(pin "4"
-			(uuid "048a48a2-7da8-4995-9506-ef6c930f1303")
-		)
-		(pin "3"
-			(uuid "2f614a2a-d8e2-4d93-acc0-03439e3fcc13")
-		)
-		(pin "13"
-			(uuid "bd15ee42-b889-4801-ad64-f0b2b963265e")
-		)
-		(pin "11"
-			(uuid "958b0b4e-f560-458e-8a98-e359117ac4c6")
-		)
-		(pin "8"
-			(uuid "7e14e103-fa76-4131-ad11-dc28f8fd6660")
-		)
-		(instances
-			(project ""
-				(path "/616a8cb0-03a5-45c1-b3ff-7922de11d15c"
-					(reference "U9")
-					(unit 3)
 				)
 			)
 		)
@@ -19340,7 +19112,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
 			(at 220.98 191.77 0)
 			(effects
 				(font
@@ -20172,6 +19944,72 @@
 		)
 	)
 	(symbol
+		(lib_id "power:VCC")
+		(at 406.4 177.8 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "dd584bea-dc06-4015-9569-3a4c5a45ff82")
+		(property "Reference" "#PWR08"
+			(at 406.4 181.61 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "VCC"
+			(at 406.4 172.72 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 406.4 177.8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 406.4 177.8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"VCC\""
+			(at 406.4 177.8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "ff485bbd-6afa-418b-9691-19c27f923d2e")
+		)
+		(instances
+			(project "RTmFM"
+				(path "/616a8cb0-03a5-45c1-b3ff-7922de11d15c"
+					(reference "#PWR08")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:D_Schottky")
 		(at 85.09 226.06 0)
 		(unit 1)
@@ -20234,6 +20072,110 @@
 				(path "/616a8cb0-03a5-45c1-b3ff-7922de11d15c"
 					(reference "D1")
 					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "74xx:74HC04")
+		(at 190.5 215.9 0)
+		(unit 4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "e2b85ea2-8e83-4285-b908-deb65beb5ed2")
+		(property "Reference" "U9"
+			(at 190.5 207.01 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "74HCT04"
+			(at 190.5 209.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
+			(at 190.5 215.9 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "https://assets.nexperia.com/documents/data-sheet/74HC_HCT04.pdf"
+			(at 190.5 215.9 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Hex Inverter"
+			(at 190.5 215.9 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "12"
+			(uuid "4ca74900-cb68-4669-ad62-5c93f1ecad18")
+		)
+		(pin "10"
+			(uuid "6a97056c-4373-418b-821c-3a8ac619cbba")
+		)
+		(pin "2"
+			(uuid "85c8ceb3-bffc-4af7-825d-3a8d2ab2434a")
+		)
+		(pin "1"
+			(uuid "89c99711-a1e5-4822-b230-1606c8430fd3")
+		)
+		(pin "14"
+			(uuid "4c2135bd-f28a-4c76-ade0-706f230add7c")
+		)
+		(pin "7"
+			(uuid "2cdf5367-7cc0-45af-b126-e9fdaa4aba32")
+		)
+		(pin "9"
+			(uuid "d2000690-da4d-4e8b-a318-03b0af0f9690")
+		)
+		(pin "6"
+			(uuid "17f31324-403e-442d-8fcb-3e3158834bcf")
+		)
+		(pin "5"
+			(uuid "50f3419b-aee4-4085-abbf-d1d6dab13357")
+		)
+		(pin "4"
+			(uuid "048a48a2-7da8-4995-9506-ef6c930f1300")
+		)
+		(pin "3"
+			(uuid "2f614a2a-d8e2-4d93-acc0-03439e3fcc10")
+		)
+		(pin "13"
+			(uuid "bd15ee42-b889-4801-ad64-f0b2b963265b")
+		)
+		(pin "11"
+			(uuid "958b0b4e-f560-458e-8a98-e359117ac4c3")
+		)
+		(pin "8"
+			(uuid "2b2b95e1-62c7-4af0-a518-527cba3e27b6")
+		)
+		(instances
+			(project "RTmFM"
+				(path "/616a8cb0-03a5-45c1-b3ff-7922de11d15c"
+					(reference "U9")
+					(unit 4)
 				)
 			)
 		)
@@ -20469,7 +20411,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Package_DIP:DIP-14_W10.16mm"
+		(property "Footprint" "Package_DIP:DIP-14_W7.62mm"
 			(at 95.25 379.73 0)
 			(effects
 				(font
