@@ -1,0 +1,41 @@
+.program datastream 
+
+public start:   
+
+	PULL block
+	MOV X, OSR
+
+.wrap_target
+	PULL noblock
+
+	SET Y,6
+loop:
+	OUT PINS,1 [14]
+	SET PINS,0 [14]
+	OUT PINS,1 [14]
+	SET PINS,0 [13]
+	JMP Y-- loop
+
+	OUT PINS,1 [14]
+	SET PINS,0 [14]
+	OUT PINS,1 [14]
+	SET PINS,0 [12]
+
+.wrap
+
+
+% c-sdk {
+static inline void datastream_program_init(PIO pio, uint sm, uint offset) {
+	pio_set_gpio_base(pio, 0);
+	pio_gpio_init(pio, 12);
+	pio_sm_set_consecutive_pindirs(pio, sm, 12, 1, true);
+	pio_sm_config c = datastream_program_get_default_config(offset);
+	sm_config_set_clkdiv(&c, 1.0);
+    sm_config_set_out_pin_base(&c, 12);
+    sm_config_set_out_pin_count(&c, 1);
+    sm_config_set_set_pin_base(&c, 12);
+    sm_config_set_set_pin_count(&c, 1);
+	pio_sm_init(pio, sm, offset, &c);
+}
+%}
+
