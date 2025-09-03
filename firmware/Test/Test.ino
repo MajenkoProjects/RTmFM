@@ -89,12 +89,12 @@ uint16_t mfm_encode_bit(uint8_t b) {
 
 	if (b == 0x80) {
 		last_bit = 1;
-		return 0b1000000000000000;
+		return 0b01;
 	}
 
 
 	if (last_bit == 0) {
-		return 0b0100000000000000;
+		return 0b10;
 	} else {
 		last_bit = 0;
 		return 0b00;
@@ -109,7 +109,7 @@ uint16_t mfm_encode(uint8_t b) {
 	//Serial.println(b, HEX);
 
 	for (int i = 0; i < 8; i++) {
-		out >>= 2;
+		out <<= 2;
 		//Serial.println(b, BIN);
 		out |= mfm_encode_bit(b & 0x80);
 		b <<= 1;
@@ -155,7 +155,8 @@ void loop() {
 	header_crc = 0xFFFF;
 	header_crc = crc16(0xA1, header_crc);
 	uint16_t sync = mfm_encode(0xA1);
-	sync &= 0b1111101111111111;
+	//sync &= 0b1111101111111111;
+	sync &= 0b1111111111011111;
 
 	pio->txf[sm] = sync;
 	csend(0xFE);
