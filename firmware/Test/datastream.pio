@@ -11,16 +11,16 @@ public start:
 
 	SET Y,6
 loop:
-	OUT PINS,1 [14]
-	SET PINS,0 [14]
-	OUT PINS,1 [14]
-	SET PINS,0 [13]
+	OUT PINS,1 [4]
+	SET PINS,0 [4]
+	OUT PINS,1 [4]
+	SET PINS,0 [3]
 	JMP Y-- loop
 
-	OUT PINS,1 [14]
-	SET PINS,0 [14]
-	OUT PINS,1 [14]
-	SET PINS,0 [11]
+	OUT PINS,1 [4]
+	SET PINS,0 [4]
+	OUT PINS,1 [4]
+	SET PINS,0 [1]
 
 .wrap
 
@@ -33,7 +33,7 @@ static inline void datastream_program_init(PIO pio, uint sm, uint offset) {
 	pio_sm_config c = datastream_program_get_default_config(offset);
 	sm_config_set_out_shift(&c, false, false, 0);
 	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
-	sm_config_set_clkdiv(&c, 1.0);
+	sm_config_set_clkdiv(&c, 3.0);
     sm_config_set_out_pin_base(&c, 12);
     sm_config_set_out_pin_count(&c, 1);
     sm_config_set_set_pin_base(&c, 12);
