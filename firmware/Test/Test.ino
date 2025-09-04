@@ -18,14 +18,21 @@ int offset;
 #define POLY16 0x1021
 #define POLY32 0xa00805
 
-#define CQ16(V, C) C = crc16(V, C); queue(mfm_encode(V))
-#define CQ32(V, C) C = crc32(V, C); queue(mfm_encode(V))
+#define CQ16(V, C, P) C = crc16(V, C, P); queue(mfm_encode(V))
+#define CQ32(V, C, P) C = crc32(V, C, P); queue(mfm_encode(V))
 
 #define NUM_SECTORS 17
 
 #define TRACK_SIZE (512 * NUM_SECTORS)
 
 uint8_t *track_data;
+
+#define OPT_HEADER_CRC16	0x00000001
+#define OPT_HEADER_CRC32	0x00000002
+#define OPT_HEADER_CRC_MASK 0xFFFFFFFC
+#define OPT_DATA_CRC16		0x00000004
+#define OPT_DATA_CRC32		0x00000008
+#define OPT_DATA_CRC_MASK 	0xFFFFFFF3
 
 
 struct disk_format {
@@ -38,6 +45,9 @@ struct disk_format {
 	uint8_t header_postgap;
 	uint8_t data_postgap;
 	float data_rate;
+	uint32_t flags;
+	uint32_t header_poly;
+	uint32_t data_poly;
 
 	// Calculated data - not to be filled.
 
@@ -59,6 +69,10 @@ struct disk_format RD54 = {
 	16, 		// Header postgap
 	50,			// Data postgap
 	5000000,	// Data Rate
+	OPT_HEADER_CRC16 | OPT_DATA_CRC32,
+	0x1021,		// Header CRC polynomial
+	0xa00805,	// Data CRC polynomial
+	
 };
 	
 
@@ -71,16 +85,16 @@ void bindump(uint16_t v) {
 	}
 }
 
-uint16_t crc16(uint8_t val, uint16_t crc)
+uint16_t crc16(uint8_t val, uint16_t crc, uint16_t poly)
 {
 
 	uint16_t xval = val;
 
    int j;
    crc = crc ^ (xval << 8);
-   for (j = 1; j <= 8; j++) {   // Assuming 8 bits per val
-      if (crc & 0x8000) {   // if leftmost (most significant) bit is set
-         crc = (crc << 1) ^ POLY16;
+   for (j = 1; j <= 8; j++) {
+      if (crc & 0x8000) {
+         crc = (crc << 1) ^ poly;
       } else {
          crc = crc << 1;
       }
@@ -88,14 +102,14 @@ uint16_t crc16(uint8_t val, uint16_t crc)
    return crc;
 }
 
-uint32_t crc32(uint8_t val, uint32_t crc)
+uint32_t crc32(uint8_t val, uint32_t crc, uint32_t poly)
 {
 
    int j;
    crc = crc ^ (val << 24);
-   for (j = 1; j <= 8; j++) {   // Assuming 8 bits per val
-      if (crc & 0x80000000) {   // if leftmost (most significant) bit is set
-         crc = (crc << 1) ^ POLY32;
+   for (j = 1; j <= 8; j++) {
+      if (crc & 0x80000000) {
+         crc = (crc << 1) ^ poly;
       } else {
          crc = crc << 1;
       }
@@ -152,42 +166,63 @@ void zero_pad() {
 }
 
 void send_header(uint16_t cyl, uint8_t head, uint8_t sector, uint8_t size) {
-	uint16_t header_crc = 0xFFFF;
 
 	zero_pad();
-
 	sync();
-	header_crc = crc16(0xA1, header_crc);
-
-	CQ16(0xFE, header_crc);
-	CQ16(cyl & 0xFF, header_crc);
-	CQ16(((cyl >> 4) & 0xF0) | (head & 0x0F), header_crc);
-	CQ16(sector, header_crc);
-	CQ16(size, header_crc);
-
-	queue(mfm_encode((header_crc >> 8) & 0xFF));
-	queue(mfm_encode(header_crc & 0xFF));
-
+	if (format->flags & OPT_HEADER_CRC16) {
+		uint16_t header_crc = 0xFFFF;
+		header_crc = crc16(0xA1, header_crc, format->header_poly);
+		CQ16(0xFE, header_crc, format->header_poly);
+		CQ16(cyl & 0xFF, header_crc, format->header_poly);
+		CQ16(((cyl >> 4) & 0xF0) | (head & 0x0F), header_crc, format->header_poly);
+		CQ16(sector, header_crc, format->header_poly);
+		CQ16(size, header_crc, format->header_poly);
+		queue(mfm_encode((header_crc >> 8) & 0xFF));
+		queue(mfm_encode(header_crc & 0xFF));
+	} else if (format->flags & OPT_HEADER_CRC32) {
+		uint32_t header_crc = 0xFFFFFFFF;
+		header_crc = crc32(0xA1, header_crc, format->header_poly);
+		CQ32(0xFE, header_crc, format->header_poly);
+		CQ32(cyl & 0xFF, header_crc, format->header_poly);
+		CQ32(((cyl >> 4) & 0xF0) | (head & 0x0F), header_crc, format->header_poly);
+		CQ32(sector, header_crc, format->header_poly);
+		CQ32(size, header_crc, format->header_poly);
+		queue(mfm_encode((header_crc >> 24) & 0xFF));
+		queue(mfm_encode((header_crc >> 16) & 0xFF));
+		queue(mfm_encode((header_crc >> 8) & 0xFF));
+		queue(mfm_encode(header_crc & 0xFF));
+	}
 	zero_pad();
 }
 
 void send_data(uint8_t *data, uint16_t len) {
-	uint32_t data_crc = 0xFFFFFFFF;
-
 	zero_pad();
 	sync();
-	data_crc = crc32(0xA1, data_crc);
+	if (format->flags & OPT_DATA_CRC16) {
+		uint16_t data_crc = 0xFFFF;
+		data_crc = crc16(0xA1, data_crc, format->data_poly);
+		CQ16(0xFB, data_crc, format->data_poly);
 
-	CQ32(0xFB, data_crc);
+		for (int i = 0; i < len; i++) {
+			CQ16(data[i], data_crc, format->data_poly);
+		}
 
-	for (int i = 0; i < len; i++) {
-		CQ32(data[i], data_crc);
+		queue(mfm_encode((data_crc >> 8) & 0xFF));
+		queue(mfm_encode(data_crc & 0xFF));
+	} else if (format->flags & OPT_DATA_CRC32) {
+		uint32_t data_crc = 0xFFFFFFFF;
+		data_crc = crc32(0xA1, data_crc, format->data_poly);
+		CQ32(0xFB, data_crc, format->data_poly);
+
+		for (int i = 0; i < len; i++) {
+			CQ32(data[i], data_crc, format->data_poly);
+		}
+
+		queue(mfm_encode((data_crc >> 24) & 0xFF));
+		queue(mfm_encode((data_crc >> 16) & 0xFF));
+		queue(mfm_encode((data_crc >> 8) & 0xFF));
+		queue(mfm_encode(data_crc & 0xFF));
 	}
-
-	queue(mfm_encode((data_crc >> 24) & 0xFF));
-	queue(mfm_encode((data_crc >> 16) & 0xFF));
-	queue(mfm_encode((data_crc >> 8) & 0xFF));
-	queue(mfm_encode(data_crc & 0xFF));
 
 	zero_pad();
 
@@ -235,6 +270,23 @@ CLI_COMMAND(cli_status) {
 	uint32_t sector_bytes = 8 + format->slen + 6 + format->header_postgap + format->data_postgap + 4;
 	uint32_t total_clocks = ((sector_bytes * format->sectors) + format->track_pregap + format->track_postgap + 1) * 8;
 
+	if ((argc == 2) && (strcmp(argv[1], "ini") == 0)) {
+		dev->print("cyls="); dev->println(format->cyls);
+		dev->print("heads="); dev->println(format->heads);
+		dev->print("sectors="); dev->println(format->sectors);
+		dev->print("sector_size="); dev->println(0x80 << format->sector_size);
+		dev->print("track_pregap="); dev->println(format->track_pregap);
+		dev->print("track_postgap="); dev->println(format->track_postgap);
+		dev->print("header_postgap="); dev->println(format->header_postgap);
+		dev->print("data_postgap="); dev->println(format->data_postgap);
+		dev->print("data_rate="); dev->println(format->data_rate);
+		dev->print("header_crc="); dev->println((format->flags & OPT_HEADER_CRC16) ? "16" : (format->flags & OPT_HEADER_CRC32) ? "32" : "ERROR");
+		dev->print("data_crc="); dev->println((format->flags & OPT_DATA_CRC16) ? "16" : (format->flags & OPT_DATA_CRC32) ? "32" : "ERROR");
+		dev->print("header_poly="); dev->println(format->header_poly, HEX);
+		dev->print("data_poly="); dev->println(format->data_poly, HEX);
+		return 0;
+	}
+
 	float rpm = (format->data_rate / total_clocks) * 60.0;
 
 	dev->print("Cylinders:              ");
@@ -246,6 +298,17 @@ CLI_COMMAND(cli_status) {
 	dev->print("Sector Size:            ");
 	dev->print(0x80 << format->sector_size);
 	dev->println(" bytes");
+
+	dev->println();
+
+	dev->print("Header CRC Bits:        "); 
+	dev->println((format->flags & OPT_HEADER_CRC16) ? "16" : (format->flags & OPT_HEADER_CRC32) ? "32" : "ERROR");
+	dev->print("Data CRC Bits:          ");
+	dev->println((format->flags & OPT_DATA_CRC16) ? "16" : (format->flags & OPT_DATA_CRC32) ? "32" : "ERROR");
+	dev->print("Header CRC Polynomial:  ");
+	dev->println(format->header_poly, HEX);
+	dev->print("Data CRC Polynomial:    ");
+	dev->println(format->data_poly, HEX);
 
 	dev->println();
 	dev->print("Track Pregap:           ");
@@ -302,6 +365,10 @@ CLI_COMMAND(cli_set) {
 		dev->println("    header_postgap");
 		dev->println("    data_postgap");
 		dev->println("    data_rate");
+		dev->println("    header_crc");
+		dev->println("    data_crc");
+		dev->println("    header_poly");
+		dev->println("    data_poly");
 		return 10;
 	}
 
@@ -335,6 +402,50 @@ CLI_COMMAND(cli_set) {
 		format->data_rate = r;
 		format->clock_div = cd;
 		pio_sm_set_clkdiv(pio, sm, format->clock_div);
+		return 0;
+	}
+
+	if (strcmp(argv[1], "header_crc") == 0) {
+		int c = strtol(argv[2], NULL, 10);
+		if (c == 16) {
+			format->flags &= OPT_HEADER_CRC_MASK;
+			format->flags |= OPT_HEADER_CRC16;
+			return 0;
+		}
+
+		if (c == 32) {
+			format->flags &= OPT_HEADER_CRC_MASK;
+			format->flags |= OPT_HEADER_CRC32;
+			return 0;
+		}
+		dev->println("Error: header_crc must be 16 or 32");
+		return 10;
+	}
+
+	if (strcmp(argv[1], "data_crc") == 0) {
+		int c = strtol(argv[2], NULL, 10);
+		if (c == 16) {
+			format->flags &= OPT_DATA_CRC_MASK;
+			format->flags |= OPT_DATA_CRC16;
+			return 0;
+		}
+
+		if (c == 32) {
+			format->flags &= OPT_DATA_CRC_MASK;
+			format->flags |= OPT_DATA_CRC32;
+			return 0;
+		}
+		dev->println("Error: data_crc must be 16 or 32");
+		return 10;
+	}
+
+	if (strcmp(argv[1], "header_poly") == 0) {
+		format->header_poly = strtoul(argv[2], NULL, 16);
+		return 0;
+	}
+
+	if (strcmp(argv[1], "data_poly") == 0) {
+		format->data_poly = strtoul(argv[2], NULL, 16);
 		return 0;
 	}
 
