@@ -192,6 +192,18 @@ enum {
 	PH_TRACK_POSTGAP
 };
 
+enum {
+	LOAD_IDLE,
+	LOAD_HEADER,
+	LOAD_DATA,
+	LOAD_DATA_RUN,
+	LOAD_HEADER_CS,
+	LOAD_DATA_CS,
+	LOAD_HEADER_MFM,
+	LOAD_DATA_MFM,
+	LOAD_SYNC
+};
+
 void second_cpu_thread() {
 
 	dma = dma_claim_unused_channel(true);
@@ -204,6 +216,11 @@ void second_cpu_thread() {
 	uint32_t ts = micros();
 
 	int phase = 0;
+	int load_sm = LOAD_IDLE;
+	int load_iter = 0;
+	uint16_t load_hcs = 0;
+	uint32_t load_dcs = 0;
+
 	int next_sector = 1;
 	current_sector = 0;
 
@@ -214,7 +231,7 @@ void second_cpu_thread() {
 	struct sector *send = &sectorB;
 	struct sector *swap;
 
-	load_sector(load, current_cyl, current_head, current_sector, &track_data[0]);
+//	load_sector(load, current_cyl, current_head, current_sector, &track_data[0]);
 
 	pinMode(HSEL0, INPUT);
 	pinMode(HSEL1, INPUT);
@@ -222,6 +239,9 @@ void second_cpu_thread() {
 	pinMode(HSEL3, INPUT);
 
 	while (1) {
+
+	    uint16_t hp = format->header_poly;
+    	uint32_t dp = format->data_poly;
 
 		current_head = digitalRead(HSEL0) | (digitalRead(HSEL1) << 1) | (digitalRead(HSEL2) << 2) | (digitalRead(HSEL3) << 3);
 
@@ -263,6 +283,11 @@ void second_cpu_thread() {
 					true
 				);
 
+				next_sector = (current_sector + 1) % format->sectors;
+				//load_sector(load, current_cyl, current_head, next_sector, &track_data[512 * next_sector]);
+				load_sm = LOAD_HEADER;
+
+
 				phase = PH_HEADER_POSTGAP;
 				break;
 
@@ -282,8 +307,11 @@ void second_cpu_thread() {
 					520,
 					true
 				);
-				next_sector = (current_sector + 1) % format->sectors;
-				load_sector(load, current_cyl, current_head, next_sector, &track_data[512 * next_sector]);
+	
+				//next_sector = (current_sector + 1) % format->sectors;
+				//load_sector(load, current_cyl, current_head, next_sector, &track_data[512 * next_sector]);
+				//load_sm = LOAD_HEADER;
+
 				if (current_sector < format->sectors - 1) {
 					phase = PH_DATA_POSTGAP;
 				} else {
@@ -307,7 +335,155 @@ void second_cpu_thread() {
 				}
 				break;
 		}
-					
+
+
+
+		// Sector loading state machine
+
+		switch (load_sm) {
+			case LOAD_IDLE: // Waiting for instruction
+				break;
+
+			case LOAD_HEADER:
+				load->header[0] = 0;
+				load->header[1] = 0xA1;
+				load->header[2] = 0xFE;
+				load->header[3] = (current_cyl & 0xFF);
+				load->header[4] = ((current_cyl & 0xF00) >> 4) | (current_head & 0x0F);
+				load->header[5] = next_sector;
+				load->header[6] = format->sector_size;
+				load->header[7] = 0x00;
+				load->header[8] = 0x00;
+				load->header[9] = 0;
+				load_sm = LOAD_DATA;
+				break;
+
+			case LOAD_DATA:
+				load->data[0] = 0;
+				load->data[1] = 0xA1;
+				load->data[2] = 0xFB;
+				load_iter = 0;
+				load_sm = LOAD_DATA_RUN;
+				break;
+
+			case LOAD_DATA_RUN:
+				load->data[load_iter + 3] = track_data[512 * next_sector + load_iter];
+				load_iter++;
+				if (load_iter == 512) {
+					load_sm = LOAD_HEADER_CS;
+					load_iter = 1;
+					load_hcs = 0xFFFF;
+				}
+				break;
+
+			case LOAD_HEADER_CS:
+				load_hcs = crc16(load->header[load_iter], load_hcs, hp);
+				load_iter++;
+				if (load_iter == 7) {
+					load->header[7] = (load_hcs >> 8) & 0xFF;
+					load->header[8] = load_hcs & 0xFF;
+					load_iter = 1;
+					load_dcs = 0xFFFFFFFF;
+					load_sm = LOAD_DATA_CS;
+				}
+				break;
+
+			case LOAD_DATA_CS:
+
+				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
+				load_iter++;
+				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
+				load_iter++;
+				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
+				load_iter++;
+				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
+				load_iter++;
+				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
+				load_iter++;
+				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
+				load_iter++;
+				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
+				load_iter++;
+				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
+				load_iter++;
+				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
+				load_iter++;
+				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
+				load_iter++;
+				if (load_iter >= 515) {
+					load->data[515] = (load_dcs >> 24) & 0xFF;
+					load->data[516] = (load_dcs >> 16) & 0xFF;
+					load->data[517] = (load_dcs >> 8) & 0xFF;
+					load->data[518] = load_dcs & 0xFF;
+					load->data[519] = 0;
+					load_iter = 0;
+					load_sm = LOAD_HEADER_MFM;
+				}
+				break;
+
+			case LOAD_HEADER_MFM:
+				load->header[0] = mfm_encode(load->header[0], true);
+				load->header[1] = mfm_encode(load->header[1], false) & 0b1111111111011111;
+				load->header[2] = mfm_encode(load->header[2], false);
+				load->header[3] = mfm_encode(load->header[3], false);
+				load->header[4] = mfm_encode(load->header[4], false);
+				load->header[5] = mfm_encode(load->header[5], false);
+				load->header[6] = mfm_encode(load->header[6], false);
+				load->header[7] = mfm_encode(load->header[7], false);
+				load->header[8] = mfm_encode(load->header[8], false);
+				load->header[9] = mfm_encode(load->header[9], false);
+				load_sm = LOAD_DATA_MFM;
+				break;
+
+			case LOAD_DATA_MFM:
+
+				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				load_iter++;
+
+				if (load_iter == 1) {
+					load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0) & 0b1111111111011111;
+				} else {
+					load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				}
+				load_iter++;
+
+				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				load_iter++;
+
+				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				load_iter++;
+
+				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				load_iter++;
+
+				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				load_iter++;
+
+				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				load_iter++;
+
+				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				load_iter++;
+
+				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				load_iter++;
+
+				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				load_iter++;
+
+				if (load_iter >= 520) {
+			//		digitalWrite(INDEX, LOW);
+			//		digitalWrite(INDEX, HIGH);
+					load_sm = LOAD_IDLE;
+				}
+				break;
+
+			case LOAD_SYNC:
+				load->header[1] &= 0b1111111111011111;
+				load->data[1] &= 0b1111111111011111;
+				load_sm = LOAD_IDLE;
+				break;
+		}
 	}
 }
 
