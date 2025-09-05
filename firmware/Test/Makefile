@@ -12,7 +12,8 @@ BIN=bin/$(SKETCH).ino.bin
 #IP=$(shell avahi-resolve -n $(HOST).local | cut -f2 -d'	')
 
 $(BIN): $(SKETCH).ino datastream.h
-	arduino-cli compile --fqbn $(BOARD) --board-options "freq=300,arch=riscv" --output-dir bin --build-path build
+	#arduino-cli compile --fqbn $(BOARD) --board-options "freq=300,arch=riscv" --output-dir bin --build-path build
+	arduino-cli compile --fqbn $(BOARD) --board-options "freq=300" --output-dir bin --build-path build
 
 upload: $(BIN)
 	arduino-cli upload --fqbn $(BOARD) -p $(PORT) --input-dir bin

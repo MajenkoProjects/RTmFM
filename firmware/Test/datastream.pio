@@ -26,17 +26,17 @@ loop:
 
 
 % c-sdk {
-static inline void datastream_program_init(PIO pio, uint sm, uint offset) {
+static inline void datastream_program_init(PIO pio, uint sm, uint offset, int dout) {
 	pio_set_gpio_base(pio, 0);
-	pio_gpio_init(pio, 12);
-	pio_sm_set_consecutive_pindirs(pio, sm, 12, 1, true);
+	pio_gpio_init(pio, dout);
+	pio_sm_set_consecutive_pindirs(pio, sm, dout, 1, true);
 	pio_sm_config c = datastream_program_get_default_config(offset);
 	sm_config_set_out_shift(&c, false, false, 0);
 	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 	sm_config_set_clkdiv(&c, 3.0);
-    sm_config_set_out_pin_base(&c, 12);
+    sm_config_set_out_pin_base(&c, dout);
     sm_config_set_out_pin_count(&c, 1);
-    sm_config_set_set_pin_base(&c, 12);
+    sm_config_set_set_pin_base(&c, dout);
     sm_config_set_set_pin_count(&c, 1);
 	pio_sm_init(pio, sm, offset, &c);
 }

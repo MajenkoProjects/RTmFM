@@ -1,6 +1,13 @@
 #include <CLI.h>
-
+#include <SdFat.h>
 #include "datastream.h"
+
+#define SDIO_CLK	16
+#define SDIO_CMD	17
+#define SDIO_DAT0	18
+#define SDIO_DAT1	19
+#define SDIO_DAT2	20
+#define SDIO_DAT3	21
 
 #define SECTOR_128 0
 #define SECTOR_256 1
@@ -8,24 +15,40 @@
 #define SECTOR_1024 3
 
 
+#define INDEX			13
+#define DOUT			12
+
+#define STEP			7
+#define DIR				8
+#define SEEK_DONE		9
+#define TRACK0			10
+
+#define HSEL0			4
+#define HSEL1			5
+#define HSEL2			6
+#define HSEL3			7
+
 static PIOProgram datastreamPgm(&datastream_program);
 
 PIO pio;
 int sm;
 int offset;
+int dma;
 
+uint32_t loadtime;
+
+uint32_t current_head = 0;
+uint32_t current_cyl = 0;
+uint32_t current_sector = 0;
 
 #define POLY16 0x1021
 #define POLY32 0xa00805
-
-#define CQ16(V, C, P) C = crc16(V, C, P); queue(mfm_encode(V))
-#define CQ32(V, C, P) C = crc32(V, C, P); queue(mfm_encode(V))
 
 #define NUM_SECTORS 17
 
 #define TRACK_SIZE (512 * NUM_SECTORS)
 
-uint8_t *track_data;
+uint8_t track_data[512 * 17 * 16];
 
 #define OPT_HEADER_CRC16	0x00000001
 #define OPT_HEADER_CRC32	0x00000002
@@ -34,16 +57,19 @@ uint8_t *track_data;
 #define OPT_DATA_CRC32		0x00000008
 #define OPT_DATA_CRC_MASK 	0xFFFFFFF3
 
+SdFs sd;
+FsFile mounted_file;
 
 struct disk_format {
 	uint16_t cyls;
 	uint8_t heads;
 	uint8_t sectors;
 	uint8_t sector_size;
-	uint8_t track_pregap;
-	uint8_t track_postgap;
-	uint8_t header_postgap;
-	uint8_t data_postgap;
+	uint32_t index_width;
+	uint32_t track_pregap;
+	uint32_t track_postgap;
+	uint32_t header_postgap;
+	uint32_t data_postgap;
 	float data_rate;
 	uint32_t flags;
 	uint32_t header_poly;
@@ -64,17 +90,22 @@ struct disk_format RD54 = {
 	15, 		// Heads
 	17, 		// Sectors,
 	SECTOR_512, // Bytes per sector
-	151, 		// Track pregap
-	151, 		// Track postgap
-	16, 		// Header postgap
-	50,			// Data postgap
+	10,			// Index width - how long the index pulse is low
+	290, 		// Track pregap - Time between index pulse and first sync byte
+	1100, 		// Track postgap - Time between last sync byte and index pulse
+	41, 		// Header postgap - Time between header sync byte and data sync byte
+	911,		// Data postgap - Time between data sync byte and header sync byte of next sector
 	5000000,	// Data Rate
 	OPT_HEADER_CRC16 | OPT_DATA_CRC32,
 	0x1021,		// Header CRC polynomial
 	0xa00805,	// Data CRC polynomial
 	
 };
-	
+
+struct sector {
+	uint16_t header[10];
+	uint16_t data[520];
+};
 
 struct disk_format *format;
 
@@ -120,8 +151,6 @@ uint32_t crc32(uint8_t val, uint32_t crc, uint32_t poly)
 
 uint8_t last_bit = 0;
 uint16_t mfm_encode_bit(uint8_t b) {
-
-
 	if (b == 0x80) {
 		last_bit = 1;
 		return 0b01;
@@ -136,7 +165,10 @@ uint16_t mfm_encode_bit(uint8_t b) {
 	}
 }
 
-uint16_t mfm_encode(uint8_t b) {
+uint16_t mfm_encode(uint8_t b, bool reset = false) {
+	if (reset) {
+		last_bit = 0;
+	}
 
 	uint16_t out = 0;
 
@@ -149,120 +181,202 @@ uint16_t mfm_encode(uint8_t b) {
 	return out;
 }
 
-static inline void queue(uint16_t val) {
-	while(pio_sm_is_tx_fifo_full(pio, sm));
-	pio->txf[sm] = val;
-}
-
-void sync() {
-	uint16_t sync = mfm_encode(0xA1);
-	sync &= 0b1111111111011111;
-	queue(sync);
-
-}
-
-void zero_pad() {
-	queue(mfm_encode(0x00));
-}
-
-void send_header(uint16_t cyl, uint8_t head, uint8_t sector, uint8_t size) {
-
-	zero_pad();
-	sync();
-	if (format->flags & OPT_HEADER_CRC16) {
-		uint16_t header_crc = 0xFFFF;
-		header_crc = crc16(0xA1, header_crc, format->header_poly);
-		CQ16(0xFE, header_crc, format->header_poly);
-		CQ16(cyl & 0xFF, header_crc, format->header_poly);
-		CQ16(((cyl >> 4) & 0xF0) | (head & 0x0F), header_crc, format->header_poly);
-		CQ16(sector, header_crc, format->header_poly);
-		CQ16(size, header_crc, format->header_poly);
-		queue(mfm_encode((header_crc >> 8) & 0xFF));
-		queue(mfm_encode(header_crc & 0xFF));
-	} else if (format->flags & OPT_HEADER_CRC32) {
-		uint32_t header_crc = 0xFFFFFFFF;
-		header_crc = crc32(0xA1, header_crc, format->header_poly);
-		CQ32(0xFE, header_crc, format->header_poly);
-		CQ32(cyl & 0xFF, header_crc, format->header_poly);
-		CQ32(((cyl >> 4) & 0xF0) | (head & 0x0F), header_crc, format->header_poly);
-		CQ32(sector, header_crc, format->header_poly);
-		CQ32(size, header_crc, format->header_poly);
-		queue(mfm_encode((header_crc >> 24) & 0xFF));
-		queue(mfm_encode((header_crc >> 16) & 0xFF));
-		queue(mfm_encode((header_crc >> 8) & 0xFF));
-		queue(mfm_encode(header_crc & 0xFF));
-	}
-	zero_pad();
-}
-
-void send_data(uint8_t *data, uint16_t len) {
-	zero_pad();
-	sync();
-	if (format->flags & OPT_DATA_CRC16) {
-		uint16_t data_crc = 0xFFFF;
-		data_crc = crc16(0xA1, data_crc, format->data_poly);
-		CQ16(0xFB, data_crc, format->data_poly);
-
-		for (int i = 0; i < len; i++) {
-			CQ16(data[i], data_crc, format->data_poly);
-		}
-
-		queue(mfm_encode((data_crc >> 8) & 0xFF));
-		queue(mfm_encode(data_crc & 0xFF));
-	} else if (format->flags & OPT_DATA_CRC32) {
-		uint32_t data_crc = 0xFFFFFFFF;
-		data_crc = crc32(0xA1, data_crc, format->data_poly);
-		CQ32(0xFB, data_crc, format->data_poly);
-
-		for (int i = 0; i < len; i++) {
-			CQ32(data[i], data_crc, format->data_poly);
-		}
-
-		queue(mfm_encode((data_crc >> 24) & 0xFF));
-		queue(mfm_encode((data_crc >> 16) & 0xFF));
-		queue(mfm_encode((data_crc >> 8) & 0xFF));
-		queue(mfm_encode(data_crc & 0xFF));
-	}
-
-	zero_pad();
-
-}
-
-void send_sector(uint16_t cyl, uint8_t head, uint8_t sector, uint8_t size, uint8_t *data, uint8_t pad) {
-	send_header(cyl, head, sector, size);
-
-	for (int i = 0; i < pad; i++) {
-		zero_pad();
-	}
-
-	uint16_t len = 0x80 << size;
-	send_data(data, len);
-}
-
+enum {
+	PH_INDEX_START,
+	PH_INDEX_END,
+	PH_TRACK_PREGAP,
+	PH_SEND_HEADER,
+	PH_HEADER_POSTGAP,
+	PH_SEND_DATA,
+	PH_DATA_POSTGAP,
+	PH_TRACK_POSTGAP
+};
 
 void second_cpu_thread() {
+
+	dma = dma_claim_unused_channel(true);
+	dma_channel_config config = dma_channel_get_default_config(dma);
+	channel_config_set_read_increment(&config, true);
+	channel_config_set_write_increment(&config, false);
+	channel_config_set_dreq(&config, pio_get_dreq(pio, sm, true));
+	channel_config_set_transfer_data_size(&config, DMA_SIZE_16);
+
+	uint32_t ts = micros();
+
+	int phase = 0;
+	int next_sector = 1;
+	current_sector = 0;
+
+	struct sector sectorA;
+	struct sector sectorB;
+
+	struct sector *load = &sectorA;
+	struct sector *send = &sectorB;
+	struct sector *swap;
+
+	load_sector(load, current_cyl, current_head, current_sector, &track_data[0]);
+
+	pinMode(HSEL0, INPUT);
+	pinMode(HSEL1, INPUT);
+	pinMode(HSEL2, INPUT);
+	pinMode(HSEL3, INPUT);
+
 	while (1) {
-		for (int i = 0; i < format->track_postgap; i++) {
-			zero_pad();
-		}
-		format->idx_period = micros() - format->idx_ts;
-		format->idx_ts = micros();
-		digitalWrite(13, LOW);
-		zero_pad();
-		digitalWrite(13, HIGH);
-		for (int i = 0; i < format->track_pregap; i++) {
-			zero_pad();
-		}
 
-		for (int sector = 0; sector < format->sectors; sector++) {
+		current_head = digitalRead(HSEL0) | (digitalRead(HSEL1) << 1) | (digitalRead(HSEL2) << 2) | (digitalRead(HSEL3) << 3);
 
-			send_sector(0, 0, sector, format->sector_size, track_data + (sector * format->slen), format->header_postgap);
+		switch (phase) {
+			case PH_INDEX_START: // Start index pulse
+				ts = micros();
+				format->idx_period = micros() - format->idx_ts;
+				format->idx_ts = micros();
+				digitalWrite(INDEX, LOW);
+				phase++;
+				break;
 
-			for (int i = 0; i < format->data_postgap; i++) {
-				zero_pad();
-			}
+			case PH_INDEX_END: // Index pulse timing
+				if ((micros() - ts) >= format->index_width) {
+					ts = micros();
+					digitalWrite(INDEX, HIGH);
+					phase++;
+				}
+				break;
+
+			case PH_TRACK_PREGAP: // Track pre-gap
+				if ((micros() - ts) >= format->track_pregap) {
+					ts = micros();
+					phase = PH_SEND_HEADER;
+				}
+				break;
+
+			case PH_SEND_HEADER:
+				ts = micros();
+
+				swap = load;
+				load = send;
+				send = swap;
+
+				dma_channel_configure(dma, &config, 
+					&pio->txf[sm],
+					send->header,
+					10,
+					true
+				);
+
+				phase = PH_HEADER_POSTGAP;
+				break;
+
+			case PH_HEADER_POSTGAP:
+				if ((micros() - ts) >= format->header_postgap) {
+					ts = micros();
+					phase = PH_SEND_DATA;
+				}
+				break;
+
+			case PH_SEND_DATA:
+				ts = micros();
+
+				dma_channel_configure(dma, &config,
+					&pio->txf[sm],
+					send->data,
+					520,
+					true
+				);
+				next_sector = (current_sector + 1) % format->sectors;
+				load_sector(load, current_cyl, current_head, next_sector, &track_data[512 * next_sector]);
+				if (current_sector < format->sectors - 1) {
+					phase = PH_DATA_POSTGAP;
+				} else {
+					phase = PH_TRACK_POSTGAP;
+				}
+				break;
+
+			case PH_DATA_POSTGAP:
+				if ((micros() - ts) > format->data_postgap) {
+					ts = micros();
+					current_sector++;
+					phase = PH_SEND_HEADER;
+				}
+				break;
+
+			case PH_TRACK_POSTGAP:
+				if ((micros() - ts) > format->track_postgap) {
+					ts = micros();
+					current_sector = 0;
+					phase = PH_INDEX_START;
+				}
+				break;
 		}
+					
 	}
+}
+
+void load_sector(struct sector *s, int cno, int hno, int secno, uint8_t *data) {
+
+	uint32_t ts = micros();
+
+	uint16_t hp = format->header_poly;
+	uint32_t dp = format->data_poly;
+
+	s->header[0] = 0;
+	s->header[1] = 0xA1;
+	s->header[2] = 0xFE;
+	s->header[3] = (cno & 0xFF);
+	s->header[4] = ((cno & 0xF00) >> 4) | (hno & 0x0F);
+	s->header[5] = secno;
+	s->header[6] = 0x02;
+
+	uint16_t crc = 0xFFFF;
+	for (int i = 1; i < 7; i++) {
+		crc = crc16(s->header[i], crc, hp);
+	}
+
+	s->header[7] = (crc >> 8) & 0xFF;
+	s->header[8] = crc & 0xFF;
+	s->header[9] = 0;
+
+	for (int i = 0; i < 10; i++) {
+		s->header[i] = mfm_encode(s->header[i], i == 0);
+	}
+
+	s->header[1] &= 0b1111111111011111;
+
+	s->data[0] = 0;
+	s->data[1] = 0xA1;
+	s->data[2] = 0xFB;
+	for (int i = 0; i < 512; i++) {
+		s->data[3 + i] = data[i];
+	}
+
+	uint32_t c32 = 0xFFFFFFFF;
+	for (int i = 1; i < 515; i++) {
+		c32 = crc32(s->data[i], c32, dp);
+	}
+	s->data[515] = (c32 >> 24) & 0xFF;
+	s->data[516] = (c32 >> 16) & 0xFF;
+	s->data[517] = (c32 >> 8) & 0xFF;
+	s->data[518] = c32 & 0xFF;
+	s->data[519] = 0;
+
+	for (int i = 0; i < 520; i++) {
+		s->data[i] = mfm_encode(s->data[i], i == 0);
+	}
+
+	s->data[1] &= 0b1111111111011111;
+
+	loadtime = micros() - ts;
+
+}
+
+void load_cyl(FsFile file, uint8_t *data, uint32_t cyl, uint32_t heads, uint32_t sectors, uint32_t sectorsize) {
+	uint32_t len = 0x80 << sectorsize;
+	len *= sectors;
+	len *= heads;
+
+	uint32_t offset = cyl * len;
+
+	file.seekSet(offset);
+	file.read(data, len);
 }
 
 
@@ -343,13 +457,34 @@ CLI_COMMAND(cli_status) {
 
 	dev->print("Requested Data Rate:    ");
 	dev->print(format->data_rate);
-	dev->println("MHz");
+	dev->println("Hz");
 	dev->print("Actual Data Rate:       ");
 	dev->print(F_CPU / format->clock_div / 20.0);
-	dev->println("MHz");
+	dev->println("Hz");
 
 	dev->print("Clock divider:          ");
 	dev->println(format->clock_div);
+
+	dev->println();
+	dev->print("PIO:                    ");
+	dev->println(PIO_NUM(pio));
+	dev->print("State Machine:          ");
+	dev->println(sm);
+	dev->print("Offset:                 ");
+	dev->println(offset);
+
+	dev->println();
+	dev->print("Load time:              ");
+	dev->print(loadtime);
+	dev->println("uS");
+
+	dev->println();
+	dev->print("Current C/H/S:          ");
+	dev->print(current_cyl);
+	dev->print("/");
+	dev->print(current_head);
+	dev->print("/");
+	dev->println(current_sector);
 
 	return 0;
 }
@@ -458,9 +593,93 @@ CLI_COMMAND(cli_set) {
 	return 10;
 }
 
+CLI_COMMAND(cli_ls) {
+	sd.ls(LS_A | LS_DATE | LS_SIZE);
+	return 0;
+}
+
+CLI_COMMAND(cli_create) {
+	if (argc != 2) {
+		dev->println("Usage: create <filename>");
+		dev->println("Create a new image file using the current disk format");
+		return 10;
+	}
+
+	if (sd.exists(argv[1])) {
+		dev->println("File already exists");
+		return 10;
+	}
+
+	uint32_t disk_size = 0x80 << format->sector_size;
+	disk_size *= format->sectors;
+	disk_size *= format->heads;
+	disk_size *= format->cyls;
+
+	dev->println("Creating new file, please wait...");
+	FsFile newfile;
+	newfile.open(argv[1], O_RDWR | O_CREAT);
+	newfile.preAllocate(disk_size);
+	newfile.close();
+	return 0;
+}
+
+CLI_COMMAND(cli_mount) {
+	if (argc != 2) {
+		dev->println("Usage: mount <filename>");
+		dev->println("Mount an image file as the virtual disk");
+		return 10;
+	}
+
+	if (!sd.exists(argv[1])) {
+		dev->println("File not found");
+		return 10;
+	}
+
+	mounted_file = sd.open(argv[1], O_RDWR);
+	current_cyl = 0;
+	current_head = 0;
+
+	load_cyl(mounted_file, track_data, current_cyl, format->heads, format->sectors, format->sector_size);
+	return 0;
+}
+
+
+void do_step() {
+	digitalWrite(SEEK_DONE, LOW);
+	int dir = digitalRead(DIR);
+
+	if (dir == 1 && current_cyl == 0) {
+		// No can do.
+		digitalWrite(SEEK_DONE, HIGH);
+		return;
+	}
+
+	if (dir == 1) {
+		current_cyl --;
+	} else {
+		current_cyl ++;
+	}
+	if (current_cyl >= format->cyls) {
+		current_cyl = 0;
+	}
+
+	load_cyl(mounted_file, track_data, current_cyl, format->heads, format->sectors, format->sector_size);
+
+	digitalWrite(TRACK0, current_cyl == 0);
+
+	digitalWrite(SEEK_DONE, HIGH);
+
+}
+
 void setup() {
+
+
+	if (!sd.begin(SdioConfig(SDIO_CLK, SDIO_CMD, SDIO_DAT0, 1.5))) {
+		sd.initErrorPrint();
+	}
+
     datastreamPgm.prepare(&pio, &sm, &offset);
-    datastream_program_init(pio, sm, offset);
+    datastream_program_init(pio, sm, offset, DOUT);
     pio_sm_set_enabled(pio, sm, true);
 
 	pio->txf[sm] = mfm_encode(0x00);
@@ -474,9 +693,7 @@ void setup() {
 	format->slen = 0x80 << format->sector_size;
 	format->tlen = format->slen * format->sectors;
 
-	track_data = (uint8_t *)malloc(format->tlen);
-
-	for (int i = 0; i < format->tlen; i++) {
+	for (int i = 0; i < 512 * 17; i++) {
 		track_data[i] = rand();
 	}
 
@@ -492,6 +709,18 @@ void setup() {
 
 	CLI.addCommand("status", cli_status);
 	CLI.addCommand("set", cli_set);
+	CLI.addCommand("ls", cli_ls);
+	CLI.addCommand("create", cli_create);
+	CLI.addCommand("mount", cli_mount);
+
+	pinMode(STEP, INPUT);
+	pinMode(DIR, INPUT);
+	pinMode(SEEK_DONE, OUTPUT);
+	digitalWrite(SEEK_DONE, HIGH);
+	pinMode(TRACK0, OUTPUT);
+	digitalWrite(TRACK0, current_cyl == 0);
+
+	attachInterrupt(STEP, do_step, RISING);
 }
 
 void loop() {
