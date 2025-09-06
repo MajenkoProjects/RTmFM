@@ -48,8 +48,6 @@ uint32_t current_sector = 0;
 
 #define TRACK_SIZE (512 * NUM_SECTORS)
 
-uint8_t track_data[512 * 17 * 16];
-
 #define OPT_HEADER_CRC16	0x00000001
 #define OPT_HEADER_CRC32	0x00000002
 #define OPT_HEADER_CRC_MASK 0xFFFFFFFC
@@ -102,10 +100,31 @@ struct disk_format RD54 = {
 	
 };
 
-struct sector {
+struct encoded_sector {
 	uint16_t header[10];
 	uint16_t data[520];
 };
+
+struct raw_sector {
+	uint16_t header_crc;
+	uint32_t data_crc;
+	uint8_t *data;
+};
+
+struct track {
+	struct raw_sector *sector;
+};
+
+struct cylinder {
+	uint32_t heads;
+	uint32_t sectors;
+	struct track *track;
+};
+
+
+struct cylinder cyl_data;
+
+
 
 struct disk_format *format;
 
@@ -224,14 +243,12 @@ void second_cpu_thread() {
 	int next_sector = 1;
 	current_sector = 0;
 
-	struct sector sectorA;
-	struct sector sectorB;
+	struct encoded_sector sectorA;
+	struct encoded_sector sectorB;
 
-	struct sector *load = &sectorA;
-	struct sector *send = &sectorB;
-	struct sector *swap;
-
-//	load_sector(load, current_cyl, current_head, current_sector, &track_data[0]);
+	struct encoded_sector *load = &sectorA;
+	struct encoded_sector *send = &sectorB;
+	struct encoded_sector *swap;
 
 	pinMode(HSEL0, INPUT);
 	pinMode(HSEL1, INPUT);
@@ -284,7 +301,6 @@ void second_cpu_thread() {
 				);
 
 				next_sector = (current_sector + 1) % format->sectors;
-				//load_sector(load, current_cyl, current_head, next_sector, &track_data[512 * next_sector]);
 				load_sm = LOAD_HEADER;
 
 
@@ -308,10 +324,6 @@ void second_cpu_thread() {
 					true
 				);
 	
-				//next_sector = (current_sector + 1) % format->sectors;
-				//load_sector(load, current_cyl, current_head, next_sector, &track_data[512 * next_sector]);
-				//load_sm = LOAD_HEADER;
-
 				if (current_sector < format->sectors - 1) {
 					phase = PH_DATA_POSTGAP;
 				} else {
@@ -345,6 +357,8 @@ void second_cpu_thread() {
 				break;
 
 			case LOAD_HEADER:
+					//digitalWrite(INDEX, LOW);
+					//digitalWrite(INDEX, HIGH);
 				load->header[0] = 0;
 				load->header[1] = 0xA1;
 				load->header[2] = 0xFE;
@@ -362,18 +376,15 @@ void second_cpu_thread() {
 				load->data[0] = 0;
 				load->data[1] = 0xA1;
 				load->data[2] = 0xFB;
+				load->data[515] = ((cyl_data.track[current_cyl].sector[next_sector].data_crc >> 24) & 0xFF);
+				load->data[516] = ((cyl_data.track[current_cyl].sector[next_sector].data_crc >> 16) & 0xFF);
+				load->data[517] = ((cyl_data.track[current_cyl].sector[next_sector].data_crc >> 8) & 0xFF);
+				load->data[518] = (cyl_data.track[current_cyl].sector[next_sector].data_crc & 0xFF);
+				load->data[519] = 0;
 				load_iter = 0;
-				load_sm = LOAD_DATA_RUN;
-				break;
-
-			case LOAD_DATA_RUN:
-				load->data[load_iter + 3] = track_data[512 * next_sector + load_iter];
-				load_iter++;
-				if (load_iter == 512) {
-					load_sm = LOAD_HEADER_CS;
-					load_iter = 1;
-					load_hcs = 0xFFFF;
-				}
+				load_sm = LOAD_HEADER_CS;
+				load_iter = 1;
+				load_hcs = 0xFFFF;
 				break;
 
 			case LOAD_HEADER_CS:
@@ -383,40 +394,7 @@ void second_cpu_thread() {
 					load->header[7] = (load_hcs >> 8) & 0xFF;
 					load->header[8] = load_hcs & 0xFF;
 					load_iter = 1;
-					load_dcs = 0xFFFFFFFF;
-					load_sm = LOAD_DATA_CS;
-				}
-				break;
 
-			case LOAD_DATA_CS:
-
-				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
-				load_iter++;
-				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
-				load_iter++;
-				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
-				load_iter++;
-				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
-				load_iter++;
-				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
-				load_iter++;
-				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
-				load_iter++;
-				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
-				load_iter++;
-				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
-				load_iter++;
-				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
-				load_iter++;
-				load_dcs = load_iter < 515 ? crc32(load->data[load_iter], load_dcs, dp) : load_dcs;
-				load_iter++;
-				if (load_iter >= 515) {
-					load->data[515] = (load_dcs >> 24) & 0xFF;
-					load->data[516] = (load_dcs >> 16) & 0xFF;
-					load->data[517] = (load_dcs >> 8) & 0xFF;
-					load->data[518] = load_dcs & 0xFF;
-					load->data[519] = 0;
-					load_iter = 0;
 					load_sm = LOAD_HEADER_MFM;
 				}
 				break;
@@ -432,48 +410,56 @@ void second_cpu_thread() {
 				load->header[7] = mfm_encode(load->header[7], false);
 				load->header[8] = mfm_encode(load->header[8], false);
 				load->header[9] = mfm_encode(load->header[9], false);
+				load_iter = 0;
 				load_sm = LOAD_DATA_MFM;
 				break;
 
 			case LOAD_DATA_MFM:
 
-				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
-				load_iter++;
-
-				if (load_iter == 1) {
-					load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0) & 0b1111111111011111;
+				if ((load_iter >= 3) && (load_iter < 515)) {
+					load->data[load_iter] = mfm_encode(cyl_data.track[current_cyl].sector[next_sector].data[load_iter - 3]);
 				} else {
-					load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
+
 				load_iter++;
 
-				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				if ((load_iter >= 3) && (load_iter < 515)) {
+					load->data[load_iter] = mfm_encode(cyl_data.track[current_cyl].sector[next_sector].data[load_iter - 3]);
+				} else {
+					load->data[load_iter] = mfm_encode(load->data[load_iter]);
+				}
+
 				load_iter++;
 
-				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				if ((load_iter >= 3) && (load_iter < 515)) {
+					load->data[load_iter] = mfm_encode(cyl_data.track[current_cyl].sector[next_sector].data[load_iter - 3]);
+				} else {
+					load->data[load_iter] = mfm_encode(load->data[load_iter]);
+				}
+
 				load_iter++;
 
-				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
+				if ((load_iter >= 3) && (load_iter < 515)) {
+					load->data[load_iter] = mfm_encode(cyl_data.track[current_cyl].sector[next_sector].data[load_iter - 3]);
+				} else {
+					load->data[load_iter] = mfm_encode(load->data[load_iter]);
+				}
+
 				load_iter++;
 
-				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
-				load_iter++;
+				if ((load_iter >= 3) && (load_iter < 515)) {
+					load->data[load_iter] = mfm_encode(cyl_data.track[current_cyl].sector[next_sector].data[load_iter - 3]);
+				} else {
+					load->data[load_iter] = mfm_encode(load->data[load_iter]);
+				}
 
-				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
-				load_iter++;
-
-				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
-				load_iter++;
-
-				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
-				load_iter++;
-
-				load->data[load_iter] = mfm_encode(load->data[load_iter], load_iter == 0);
 				load_iter++;
 
 				if (load_iter >= 520) {
-			//		digitalWrite(INDEX, LOW);
-			//		digitalWrite(INDEX, HIGH);
+					load->data[1] &= 0b1111111111011111;
+					//digitalWrite(INDEX, LOW);
+					//digitalWrite(INDEX, HIGH);
 					load_sm = LOAD_IDLE;
 				}
 				break;
@@ -487,72 +473,57 @@ void second_cpu_thread() {
 	}
 }
 
-void load_sector(struct sector *s, int cno, int hno, int secno, uint8_t *data) {
-
-	uint32_t ts = micros();
-
-	uint16_t hp = format->header_poly;
-	uint32_t dp = format->data_poly;
-
-	s->header[0] = 0;
-	s->header[1] = 0xA1;
-	s->header[2] = 0xFE;
-	s->header[3] = (cno & 0xFF);
-	s->header[4] = ((cno & 0xF00) >> 4) | (hno & 0x0F);
-	s->header[5] = secno;
-	s->header[6] = 0x02;
-
-	uint16_t crc = 0xFFFF;
-	for (int i = 1; i < 7; i++) {
-		crc = crc16(s->header[i], crc, hp);
+void create_track_store() {
+	if (cyl_data.track) {
+		for (int i = 0; i < cyl_data.heads; i++) {
+			if (cyl_data.track[i].sector) {
+				for (int j = 0; j < cyl_data.sectors; j++) {
+					if (cyl_data.track[i].sector[j].data) {
+						free(cyl_data.track[i].sector[j].data);
+					}
+				}
+				free(cyl_data.track[i].sector);
+			}
+		}
+		free(cyl_data.track);
 	}
 
-	s->header[7] = (crc >> 8) & 0xFF;
-	s->header[8] = crc & 0xFF;
-	s->header[9] = 0;
-
-	for (int i = 0; i < 10; i++) {
-		s->header[i] = mfm_encode(s->header[i], i == 0);
+	cyl_data.track = (struct track *)malloc(sizeof(struct track) * format->heads);
+	for (int i = 0; i < format->heads; i++) {
+		cyl_data.track[i].sector = (struct raw_sector *)malloc(sizeof(struct raw_sector) * format->sectors);
+		for (int j = 0; j < format->sectors; j++) {
+			cyl_data.track[i].sector[j].data = (uint8_t *)malloc(0x80 << format->sector_size);
+		}
 	}
-
-	s->header[1] &= 0b1111111111011111;
-
-	s->data[0] = 0;
-	s->data[1] = 0xA1;
-	s->data[2] = 0xFB;
-	for (int i = 0; i < 512; i++) {
-		s->data[3 + i] = data[i];
-	}
-
-	uint32_t c32 = 0xFFFFFFFF;
-	for (int i = 1; i < 515; i++) {
-		c32 = crc32(s->data[i], c32, dp);
-	}
-	s->data[515] = (c32 >> 24) & 0xFF;
-	s->data[516] = (c32 >> 16) & 0xFF;
-	s->data[517] = (c32 >> 8) & 0xFF;
-	s->data[518] = c32 & 0xFF;
-	s->data[519] = 0;
-
-	for (int i = 0; i < 520; i++) {
-		s->data[i] = mfm_encode(s->data[i], i == 0);
-	}
-
-	s->data[1] &= 0b1111111111011111;
-
-	loadtime = micros() - ts;
-
 }
 
-void load_cyl(FsFile file, uint8_t *data, uint32_t cyl, uint32_t heads, uint32_t sectors, uint32_t sectorsize) {
+void load_sector(FsFile file, uint32_t cyl, uint32_t head, uint32_t sector, uint8_t sectorsize) {
 	uint32_t len = 0x80 << sectorsize;
-	len *= sectors;
-	len *= heads;
+	len *= sector;
+	len *= head;
 
 	uint32_t offset = cyl * len;
 
 	file.seekSet(offset);
-	file.read(data, len);
+	file.read(cyl_data.track[head].sector[sector].data, 0x80 << sectorsize);
+
+	uint32_t crc = 0xFFFFFFFF;
+	crc = crc32(0xA1, crc, format->data_poly);
+	crc = crc32(0xFB, crc, format->data_poly);
+	for (int i = 0; i < (0x80 << sectorsize); i++) {
+		crc = crc32(cyl_data.track[head].sector[sector].data[i], crc, format->data_poly);
+	}
+
+	cyl_data.track[head].sector[sector].data_crc = crc;
+
+}
+
+void load_cyl(FsFile file, uint32_t cyl, uint32_t heads, uint32_t sectors, uint32_t sectorsize) {
+	for (int head = 0; head < format->heads; head++) {
+		for (int sector = 0; sector < format->sectors; sector++) {
+			load_sector(file, cyl, head, sector, sectorsize);
+		}
+	}
 }
 
 
@@ -603,27 +574,21 @@ CLI_COMMAND(cli_status) {
 	dev->println();
 	dev->print("Track Pregap:           ");
 	dev->print(format->track_pregap);
-	dev->println(" bytes");
+	dev->println(" uS");
 
 	dev->print("Track Postgap:          ");
 	dev->print(format->track_postgap);
-	dev->println(" bytes");
+	dev->println(" uS");
 
 	dev->print("Header Postgap:         ");
 	dev->print(format->header_postgap);
-	dev->println(" bytes");
+	dev->println(" uS");
 
 	dev->print("Data Postgap:           ");
 	dev->print(format->data_postgap);
-	dev->println(" bytes");
+	dev->println(" uS");
 
 	dev->println();
-
-	dev->print("Total clocks per track: ");
-	dev->println(total_clocks);
-
-	dev->print("Calculated RPM:         ");
-	dev->println(rpm);
 
 	dev->print("Actual RPM:             ");
 	float p = format->idx_period / 1000000.0;
@@ -815,7 +780,7 @@ CLI_COMMAND(cli_mount) {
 	current_cyl = 0;
 	current_head = 0;
 
-	load_cyl(mounted_file, track_data, current_cyl, format->heads, format->sectors, format->sector_size);
+	load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
 	return 0;
 }
 
@@ -839,7 +804,7 @@ void do_step() {
 		current_cyl = 0;
 	}
 
-	load_cyl(mounted_file, track_data, current_cyl, format->heads, format->sectors, format->sector_size);
+	load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
 
 	digitalWrite(TRACK0, current_cyl == 0);
 
@@ -865,13 +830,10 @@ void setup() {
 	Serial.begin(115200);
 
 	format = &RD54;
+	create_track_store();
 
 	format->slen = 0x80 << format->sector_size;
 	format->tlen = format->slen * format->sectors;
-
-	for (int i = 0; i < 512 * 17; i++) {
-		track_data[i] = rand();
-	}
 
 
 	format->clock_div = F_CPU / format->data_rate / 20.0;
