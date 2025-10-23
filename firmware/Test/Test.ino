@@ -15,8 +15,8 @@
 #define SECTOR_1024 3
 
 
-#define INDEX			13
-#define DOUT			12
+#define INDEX			12
+#define DOUT			0
 
 #define STEP			7
 #define DIR				8
