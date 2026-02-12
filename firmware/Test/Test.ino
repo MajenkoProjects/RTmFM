@@ -65,6 +65,9 @@ SdFs sd;
 FsFile mounted_file;
 uint8_t *track_buffer;
 
+volatile bool run_mfm_sm = false;
+mutex mfm_sm_running;
+
 struct disk_format {
 	char *name;
 	char *comment;
@@ -81,6 +84,7 @@ struct disk_format {
 	uint32_t flags;
 	uint32_t header_poly;
 	uint32_t data_poly;
+	bool auto_return;
 
 	// Calculated data - not to be filled.
 
@@ -274,25 +278,37 @@ void second_cpu_thread() {
 
 	uint32_t cs = current_cyl;
 
+	bool running = false;
+
 	while (1) {
 
-		if (!mounted_file) {
+		if (!run_mfm_sm) {
 			phase = 0;
 			load_sm = LOAD_IDLE;
+			if (running) {
+				Serial.println("Stopping state machine");
+				dma_channel_wait_for_finish_blocking(dma);
+				mutex_exit(&mfm_sm_running);
+				Serial.println("State machine stopped");
+			}
+			running = false;
 			continue;
 		}
 
+		if (!running) {
+			Serial.println("Starting state machine");
+			running = true;
+			mutex_enter_blocking(&mfm_sm_running);
+			Serial.println("State machine started");
+		}
+
 	    uint16_t hp = format->header_poly;
-		uint32_t tcs = 0;
 
 		current_head = digitalRead(HSEL0) | (digitalRead(HSEL1) << 1) | (digitalRead(HSEL2) << 2) | (digitalRead(HSEL3) << 3);
 
 		switch (phase) {
 			case PH_INDEX_START: // Start index pulse
-				tcs = current_cyl;
-				if (tcs != cs) {
-					cs = tcs;
-				}
+				cs = current_cyl;
 				ts = micros();
 				format->idx_period = micros() - format->idx_ts;
 				format->idx_ts = micros();
@@ -506,11 +522,6 @@ void create_track_store() {
 	if (cyl_data.track) {
 		for (int i = 0; i < cyl_data.heads; i++) {
 			if (cyl_data.track[i].sector) {
-				for (int j = 0; j < cyl_data.sectors; j++) {
-					if (cyl_data.track[i].sector[j].data) {
-		 digitalWrite(SEEK_DONE, HIGH);				free(cyl_data.track[i].sector[j].data);
-					}
-				}
 				free(cyl_data.track[i].sector);
 			}
 		}
@@ -520,9 +531,6 @@ void create_track_store() {
 	cyl_data.track = (struct track *)malloc(sizeof(struct track) * format->heads);
 	for (int i = 0; i < format->heads; i++) {
 		cyl_data.track[i].sector = (struct raw_sector *)malloc(sizeof(struct raw_sector) * format->sectors);
-		for (int j = 0; j < format->sectors; j++) {
-			cyl_data.track[i].sector[j].data = (uint8_t *)malloc(0x80 << format->sector_size);
-		}
 	}
 }
 
@@ -547,13 +555,17 @@ void load_cyl(FsFile file, uint32_t cyl, uint32_t heads, uint32_t sectors, uint3
 	uint32_t offset = cyl * heads * (0x80 << sectorsize);
 	file.seekSet(offset);
 
-    file.read(track_buffer, heads * sectors * (0x80 << sectorsize));
+	uint32_t bufsz = heads * sectors * (0x80 << sectorsize);
+
+	Serial.printf("Loading %d bytes\n", bufsz);
+
+    file.read(track_buffer, bufsz);
 
 	uint32_t rts = micros() - ts;
 
 	for (int head = 0; head < format->heads; head++) {
 		for (int sector = 0; sector < format->sectors; sector++) {
-			calculate_sector_crc(head, sector, sectorsize);
+			//calculate_sector_crc(head, sector, sectorsize);
 		}
 	}
 
@@ -648,7 +660,7 @@ CLI_COMMAND(cli_status) {
 		return 0;
 	}
 
-	dev->print("Mounted image: ");
+	dev->print("Mounted image:          ");
 	if (mounted_file) {
 		mounted_file.printName(dev);
 		dev->println();
@@ -734,6 +746,10 @@ CLI_COMMAND(cli_status) {
 	dev->print(current_head);
 	dev->print("/");
 	dev->println(current_sector);
+
+	dev->print("MFM State Machine Run:  ");
+	dev->println(run_mfm_sm ? "Yes" : "No");
+
 	dev->println();
 	dev->print("Known formats: ");
 	for (struct format_list *scan = formats; scan; scan = scan->next) {
@@ -760,6 +776,7 @@ CLI_COMMAND(cli_set) {
 		dev->println("    data_crc");
 		dev->println("    header_poly");
 		dev->println("    data_poly");
+		dev->println("    auto_return");
 		return 10;
 	}
 
@@ -840,6 +857,11 @@ CLI_COMMAND(cli_set) {
 		return 0;
 	}
 
+	if (strcmp(argv[1], "auto_return") == 0) {
+		format->auto_return = strncasecmp(argv[2], "Y", 1) == 0;
+		return 0;
+	}
+
 
 	dev->println("Possible items:");
 	dev->println("    track_pregap");
@@ -908,6 +930,18 @@ CLI_COMMAND(cli_mount) {
 		return 10;
 	}
 
+	run_mfm_sm = false;
+	if (!mutex_enter_timeout_ms(&mfm_sm_running, 1000)) {
+		dev->println("Timeout waiting for disk idle");
+		return 10;
+	}
+
+	//while (mfm_sm_running);
+
+	if (mounted_file) {
+		mounted_file.close();
+	}
+
 	format = find_format_by_name(argv[2]);
 	if (format == NULL) {
 		dev->println("Format not known");
@@ -922,7 +956,10 @@ CLI_COMMAND(cli_mount) {
 
 	uint32_t bps = 0x80 << format->sector_size;
 
-	track_buffer = (uint8_t *)malloc(format->heads * format->sectors * bps);
+	uint32_t bufsz = format->heads * format->sectors * bps;
+	dev->printf("Track buffer size: %d\n", bufsz);
+
+	track_buffer = (uint8_t *)malloc(bufsz);
 
     for (int head = 0; head < format->heads; head++) {
 		int hoff = head * format->sectors;
@@ -933,13 +970,31 @@ CLI_COMMAND(cli_mount) {
 
 	CRC32_init(format->data_poly);
 
+        dev->print("cyls="); dev->println(format->cyls);
+        dev->print("heads="); dev->println(format->heads);
+        dev->print("sectors="); dev->println(format->sectors);
+        dev->print("sector_size="); dev->println(0x80 << format->sector_size);
+        dev->print("track_pregap="); dev->println(format->track_pregap);
+        dev->print("track_postgap="); dev->println(format->track_postgap);
+        dev->print("header_postgap="); dev->println(format->header_postgap);
+        dev->print("data_postgap="); dev->println(format->data_postgap);
+        dev->print("data_rate="); dev->println(format->data_rate);
+        dev->print("header_crc="); dev->println((format->flags & OPT_HEADER_CRC16) ? "16" : (format->flags & OPT_HEADER_CRC32) ? "32" : "ERROR");
+        dev->print("data_crc="); dev->println((format->flags & OPT_DATA_CRC16) ? "16" : (format->flags & OPT_DATA_CRC32) ? "32" : "ERROR");
+        dev->print("header_poly="); dev->println(format->header_poly, HEX);
+        dev->print("data_poly="); dev->println(format->data_poly, HEX);
+
 	load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
+
+	mutex_exit(&mfm_sm_running);
+	run_mfm_sm = true;
 	return 0;
 }
 
 
 void do_step() {
 	if (format == NULL) return;
+	//if(!mfm_sm_running) return;
 
 	digitalWrite(SEEK_DONE, LOW);
 	int dir = digitalRead(DIR);
@@ -956,7 +1011,11 @@ void do_step() {
 		target_cyl ++;
 	}
 	if (target_cyl >= format->cyls) {
-		target_cyl = 0;
+		if (format->auto_return) {
+			target_cyl = 0;
+		} else {
+			target_cyl = format->cyls - 1;
+		}
 	}
 }
 
@@ -1164,6 +1223,7 @@ void factory_formats() {
 	rd54->flags = OPT_HEADER_CRC16 | OPT_DATA_CRC32;
 	rd54->header_poly=0x1021;
 	rd54->data_poly=0xa00805;
+	rd54->auto_return = true;
 
 	append_format(rd54);
 }
@@ -1200,13 +1260,13 @@ CLI_COMMAND(cli_seek) {
 		return 10;
 	}
 
-	current_cyl = track;
+	target_cyl = track;
 
-    load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
 	return 0;
 }
 
 void setup() {
+	mutex_init(&mfm_sm_running);
     datastreamPgm.prepare(&pio, &sm, &offset);
     datastream_program_init(pio, sm, offset, DOUT);
     pio_sm_set_enabled(pio, sm, true);
@@ -1266,20 +1326,26 @@ void loop() {
 
 	CLI.process();
 
-	
-	cli();
-	uint32_t tmp_target = target_cyl;
-	sei();
+		cli();
+		uint32_t tmp_target = target_cyl;
+		sei();
 
-	if (tmp_target != current_cyl) {
-		while (tmp_target != current_cyl) {
-			current_cyl = tmp_target;
-			load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
-			digitalWrite(TRACK0, current_cyl == 0);
-			cli();
-			uint32_t tmp_target = target_cyl;
-			sei();
+		if (tmp_target != current_cyl) {
+			while (tmp_target != current_cyl) {
+				current_cyl = tmp_target;
+				run_mfm_sm = false;
+				if (!mutex_enter_timeout_ms(&mfm_sm_running, 1000)) {
+					Serial.println("Timeout waiting for disk idle");
+				} else {
+					load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
+					digitalWrite(TRACK0, current_cyl == 0);
+					cli();
+					uint32_t tmp_target = target_cyl;
+					sei();
+					mutex_exit(&mfm_sm_running);
+					run_mfm_sm = true;
+				}
+			}
+			digitalWrite(SEEK_DONE, HIGH);
 		}
-		digitalWrite(SEEK_DONE, HIGH);
-	}
 }
