@@ -13,10 +13,11 @@ BIN=bin/$(SKETCH).ino.bin
 
 $(BIN): $(SKETCH).ino datastream.h
 	#arduino-cli compile --fqbn $(BOARD) --board-options "freq=300,arch=riscv" --output-dir bin --build-path build
-	arduino-cli compile --fqbn $(BOARD) --board-options "freq=300" --output-dir bin --build-path build
+	arduino-cli compile --fqbn $(BOARD) --board-options "freq=300,opt=Fast" --output-dir bin --build-path build
 
 upload: $(BIN)
 	arduino-cli upload --fqbn $(BOARD) -p $(PORT) --input-dir bin
+	umount /pi
 
 clean:
 	rm -rf build bin
@@ -26,3 +27,6 @@ watch:
 
 datastream.h: datastream.pio
 	${PIOASM} datastream.pio datastream.h
+
+install: 
+	mount /pi && cp bin/Test.ino.uf2 /pi && umount /pi

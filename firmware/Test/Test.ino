@@ -1,6 +1,11 @@
 #include <CLI.h>
 #include <SdFat.h>
 #include "datastream.h"
+#include <errno.h>
+#include <pico/platform.h>
+
+
+CLIClient *console;
 
 #define SDIO_CLK	16
 #define SDIO_CMD	17
@@ -37,9 +42,10 @@ int dma;
 
 uint32_t loadtime;
 
-uint32_t current_head = 0;
-uint32_t current_cyl = 0;
-uint32_t current_sector = 0;
+volatile uint32_t current_head = 0;
+volatile uint32_t current_cyl = 0;
+volatile uint32_t current_sector = 0;
+volatile uint32_t target_cyl = 0;
 
 #define POLY16 0x1021
 #define POLY32 0xa00805
@@ -57,8 +63,11 @@ uint32_t current_sector = 0;
 
 SdFs sd;
 FsFile mounted_file;
+uint8_t *track_buffer;
 
 struct disk_format {
+	char *name;
+	char *comment;
 	uint16_t cyls;
 	uint8_t heads;
 	uint8_t sectors;
@@ -82,23 +91,12 @@ struct disk_format {
 	float clock_div;
 };
 
-
-struct disk_format RD54 = {
-	1225, 		// Cyl
-	15, 		// Heads
-	17, 		// Sectors,
-	SECTOR_512, // Bytes per sector
-	10,			// Index width - how long the index pulse is low
-	290, 		// Track pregap - Time between index pulse and first sync byte
-	1100, 		// Track postgap - Time between last sync byte and index pulse
-	41, 		// Header postgap - Time between header sync byte and data sync byte
-	911,		// Data postgap - Time between data sync byte and header sync byte of next sector
-	5000000,	// Data Rate
-	OPT_HEADER_CRC16 | OPT_DATA_CRC32,
-	0x1021,		// Header CRC polynomial
-	0xa00805,	// Data CRC polynomial
-	
+struct format_list {
+	struct disk_format *fmt;
+	struct format_list *next;
 };
+
+struct format_list *formats = NULL;
 
 struct encoded_sector {
 	uint16_t header[10];
@@ -128,6 +126,16 @@ struct cylinder cyl_data;
 
 struct disk_format *format;
 
+bool _sd_is_open = false;
+bool open_sd_if_needed() {
+	if (_sd_is_open) return true;
+	if (!sd.begin(SdioConfig(SDIO_CLK, SDIO_CMD, SDIO_DAT0, 1.5))) {
+		sd.initErrorPrint();
+		return false;;
+	}
+	_sd_is_open = true;
+	return true;
+}
 
 void bindump(uint16_t v) {
 	for (int i = 0; i < 16; i++) {
@@ -152,19 +160,28 @@ uint16_t crc16(uint8_t val, uint16_t crc, uint16_t poly)
    return crc;
 }
 
-uint32_t crc32(uint8_t val, uint32_t crc, uint32_t poly)
-{
+static uint32_t CRCTable[256];
 
-   int j;
-   crc = crc ^ (val << 24);
-   for (j = 1; j <= 8; j++) {
-      if (crc & 0x80000000) {
-         crc = (crc << 1) ^ poly;
-      } else {
-         crc = crc << 1;
-      }
-   }
-   return crc;
+static void CRC32_init(uint32_t poly) {
+	uint32_t mask = 0xFFFFFFFF;
+	uint32_t topbit = 0x80000000;
+
+	for (int i = 0; i < 256; i++) {
+		uint32_t c = (i << 24);
+		for (int j = 0; j < 8; j++) {
+			if (c & topbit) {
+				c = ((c << 1) ^ poly) & mask;
+			} else {
+				c = (c << 1) & mask;
+			}
+		}
+		CRCTable[i] = c;
+	}
+}
+static inline uint32_t crc32(uint8_t val, uint32_t crc, uint32_t poly) {
+	const uint8_t idx = ((crc >> 24) ^ val) & 0xFF;
+	crc = ((crc << 8) ^ CRCTable[idx]);
+	return crc;
 }
 
 
@@ -255,15 +272,27 @@ void second_cpu_thread() {
 	pinMode(HSEL2, INPUT);
 	pinMode(HSEL3, INPUT);
 
+	uint32_t cs = current_cyl;
+
 	while (1) {
 
+		if (!mounted_file) {
+			phase = 0;
+			load_sm = LOAD_IDLE;
+			continue;
+		}
+
 	    uint16_t hp = format->header_poly;
-    	uint32_t dp = format->data_poly;
+		uint32_t tcs = 0;
 
 		current_head = digitalRead(HSEL0) | (digitalRead(HSEL1) << 1) | (digitalRead(HSEL2) << 2) | (digitalRead(HSEL3) << 3);
 
 		switch (phase) {
 			case PH_INDEX_START: // Start index pulse
+				tcs = current_cyl;
+				if (tcs != cs) {
+					cs = tcs;
+				}
 				ts = micros();
 				format->idx_period = micros() - format->idx_ts;
 				format->idx_ts = micros();
@@ -362,8 +391,8 @@ void second_cpu_thread() {
 				load->header[0] = 0;
 				load->header[1] = 0xA1;
 				load->header[2] = 0xFE;
-				load->header[3] = (current_cyl & 0xFF);
-				load->header[4] = ((current_cyl & 0xF00) >> 4) | (current_head & 0x0F);
+				load->header[3] = (cs & 0xFF);
+				load->header[4] = ((cs & 0xF00) >> 4) | (current_head & 0x0F);
 				load->header[5] = next_sector;
 				load->header[6] = format->sector_size;
 				load->header[7] = 0x00;
@@ -376,10 +405,10 @@ void second_cpu_thread() {
 				load->data[0] = 0;
 				load->data[1] = 0xA1;
 				load->data[2] = 0xFB;
-				load->data[515] = ((cyl_data.track[current_cyl].sector[next_sector].data_crc >> 24) & 0xFF);
-				load->data[516] = ((cyl_data.track[current_cyl].sector[next_sector].data_crc >> 16) & 0xFF);
-				load->data[517] = ((cyl_data.track[current_cyl].sector[next_sector].data_crc >> 8) & 0xFF);
-				load->data[518] = (cyl_data.track[current_cyl].sector[next_sector].data_crc & 0xFF);
+				load->data[515] = ((cyl_data.track[cs].sector[next_sector].data_crc >> 24) & 0xFF);
+				load->data[516] = ((cyl_data.track[cs].sector[next_sector].data_crc >> 16) & 0xFF);
+				load->data[517] = ((cyl_data.track[cs].sector[next_sector].data_crc >> 8) & 0xFF);
+				load->data[518] = (cyl_data.track[cs].sector[next_sector].data_crc & 0xFF);
 				load->data[519] = 0;
 				load_iter = 0;
 				load_sm = LOAD_HEADER_CS;
@@ -417,7 +446,7 @@ void second_cpu_thread() {
 			case LOAD_DATA_MFM:
 
 				if ((load_iter >= 3) && (load_iter < 515)) {
-					load->data[load_iter] = mfm_encode(cyl_data.track[current_cyl].sector[next_sector].data[load_iter - 3]);
+					load->data[load_iter] = mfm_encode(cyl_data.track[cs].sector[next_sector].data[load_iter - 3]);
 				} else {
 					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
@@ -425,7 +454,7 @@ void second_cpu_thread() {
 				load_iter++;
 
 				if ((load_iter >= 3) && (load_iter < 515)) {
-					load->data[load_iter] = mfm_encode(cyl_data.track[current_cyl].sector[next_sector].data[load_iter - 3]);
+					load->data[load_iter] = mfm_encode(cyl_data.track[cs].sector[next_sector].data[load_iter - 3]);
 				} else {
 					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
@@ -433,7 +462,7 @@ void second_cpu_thread() {
 				load_iter++;
 
 				if ((load_iter >= 3) && (load_iter < 515)) {
-					load->data[load_iter] = mfm_encode(cyl_data.track[current_cyl].sector[next_sector].data[load_iter - 3]);
+					load->data[load_iter] = mfm_encode(cyl_data.track[cs].sector[next_sector].data[load_iter - 3]);
 				} else {
 					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
@@ -441,7 +470,7 @@ void second_cpu_thread() {
 				load_iter++;
 
 				if ((load_iter >= 3) && (load_iter < 515)) {
-					load->data[load_iter] = mfm_encode(cyl_data.track[current_cyl].sector[next_sector].data[load_iter - 3]);
+					load->data[load_iter] = mfm_encode(cyl_data.track[cs].sector[next_sector].data[load_iter - 3]);
 				} else {
 					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
@@ -449,7 +478,7 @@ void second_cpu_thread() {
 				load_iter++;
 
 				if ((load_iter >= 3) && (load_iter < 515)) {
-					load->data[load_iter] = mfm_encode(cyl_data.track[current_cyl].sector[next_sector].data[load_iter - 3]);
+					load->data[load_iter] = mfm_encode(cyl_data.track[cs].sector[next_sector].data[load_iter - 3]);
 				} else {
 					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
@@ -479,7 +508,7 @@ void create_track_store() {
 			if (cyl_data.track[i].sector) {
 				for (int j = 0; j < cyl_data.sectors; j++) {
 					if (cyl_data.track[i].sector[j].data) {
-						free(cyl_data.track[i].sector[j].data);
+		 digitalWrite(SEEK_DONE, HIGH);				free(cyl_data.track[i].sector[j].data);
 					}
 				}
 				free(cyl_data.track[i].sector);
@@ -497,33 +526,104 @@ void create_track_store() {
 	}
 }
 
-void load_sector(FsFile file, uint32_t cyl, uint32_t head, uint32_t sector, uint8_t sectorsize) {
-	uint32_t len = 0x80 << sectorsize;
-	len *= sector;
-	len *= head;
-
-	uint32_t offset = cyl * len;
-
-	file.seekSet(offset);
-	file.read(cyl_data.track[head].sector[sector].data, 0x80 << sectorsize);
-
+void calculate_sector_crc(int head, int sector, int sectorsize) {
 	uint32_t crc = 0xFFFFFFFF;
-	crc = crc32(0xA1, crc, format->data_poly);
-	crc = crc32(0xFB, crc, format->data_poly);
+	uint32_t poly = format->data_poly;
+
+	crc = crc32(0xA1, crc, poly);
+	crc = crc32(0xFB, crc, poly);
+	uint8_t *data = cyl_data.track[head].sector[sector].data;
 	for (int i = 0; i < (0x80 << sectorsize); i++) {
-		crc = crc32(cyl_data.track[head].sector[sector].data[i], crc, format->data_poly);
+		crc = crc32(data[i], crc, poly);
 	}
 
 	cyl_data.track[head].sector[sector].data_crc = crc;
-
 }
 
 void load_cyl(FsFile file, uint32_t cyl, uint32_t heads, uint32_t sectors, uint32_t sectorsize) {
+
+	uint32_t ts = micros();
+
+	uint32_t offset = cyl * heads * (0x80 << sectorsize);
+	file.seekSet(offset);
+
+    file.read(track_buffer, heads * sectors * (0x80 << sectorsize));
+
+	uint32_t rts = micros() - ts;
+
 	for (int head = 0; head < format->heads; head++) {
 		for (int sector = 0; sector < format->sectors; sector++) {
-			load_sector(file, cyl, head, sector, sectorsize);
+			calculate_sector_crc(head, sector, sectorsize);
 		}
 	}
+
+	uint32_t cts = micros() - ts;
+
+	Serial.printf("T: %d R: %u c: %u %f tps\r\n", cyl, rts, cts - rts, 1 / (cts / 1000000.0));
+
+	
+}
+
+char *trim(char *str)
+{
+  char *end;
+
+  // Trim leading space
+  while(isspace((unsigned char)*str)) str++;
+
+  if(*str == 0)  // All spaces?
+    return str;
+
+  // Trim trailing space
+  end = str + strlen(str) - 1;
+  while(end > str && isspace((unsigned char)*end)) end--;
+
+  // Write new null terminator character
+  end[1] = '\0';
+
+  return str;
+}
+
+int execute_file(const char *filename, CLIClient *client) {
+	FsFile file;
+
+	if (!open_sd_if_needed()) {
+		errno = ENOENT;
+		return 10;
+	}
+
+	if (!sd.exists(filename)) {
+		errno = ENOENT;
+		return 10;
+	}
+
+	file.open(filename);
+	char line[1024];
+	while (file.fgets(line, 1024)) {
+		char *tline = trim(line);
+		if (strlen(tline) == 0) continue;
+		if (tline[0] == '#') continue;
+		client->print(filename);
+		client->print(": ");
+		client->println(tline);
+		client->parseCommand(tline);
+	}
+	file.close();
+	return 0;
+}
+
+CLI_COMMAND(cli_source) {
+	if (argc != 2) {
+		dev->println("Usage: source <filename>");
+		return 10;
+	}
+
+	if (execute_file(argv[1], dev) == 0) {
+		return 0;
+	}
+
+	dev->println("File not found");
+	return 10;
 }
 
 
@@ -546,6 +646,14 @@ CLI_COMMAND(cli_status) {
 		dev->print("header_poly="); dev->println(format->header_poly, HEX);
 		dev->print("data_poly="); dev->println(format->data_poly, HEX);
 		return 0;
+	}
+
+	dev->print("Mounted image: ");
+	if (mounted_file) {
+		mounted_file.printName(dev);
+		dev->println();
+	} else {
+		dev->println("none");
 	}
 
 	float rpm = (format->data_rate / total_clocks) * 60.0;
@@ -626,6 +734,13 @@ CLI_COMMAND(cli_status) {
 	dev->print(current_head);
 	dev->print("/");
 	dev->println(current_sector);
+	dev->println();
+	dev->print("Known formats: ");
+	for (struct format_list *scan = formats; scan; scan = scan->next) {
+		dev->print(scan->fmt->name);
+		dev->print(" ");
+	}
+	dev->println();
 
 	return 0;
 }
@@ -735,14 +850,28 @@ CLI_COMMAND(cli_set) {
 }
 
 CLI_COMMAND(cli_ls) {
+	if (!open_sd_if_needed()) {
+		return 10;
+	}
 	sd.ls(LS_A | LS_DATE | LS_SIZE);
 	return 0;
 }
 
 CLI_COMMAND(cli_create) {
-	if (argc != 2) {
-		dev->println("Usage: create <filename>");
-		dev->println("Create a new image file using the current disk format");
+	if (argc != 3) {
+		dev->println("Usage: create <filename> <format>");
+		dev->println("Create a new image file using the specified disk format");
+		return 10;
+	}
+	if (!open_sd_if_needed()) {
+		return 10;
+	}
+
+
+	struct disk_format *fmt = find_format_by_name(argv[2]);
+
+	if (fmt == NULL) {
+		dev->println("Unknown format");
 		return 10;
 	}
 
@@ -751,10 +880,10 @@ CLI_COMMAND(cli_create) {
 		return 10;
 	}
 
-	uint32_t disk_size = 0x80 << format->sector_size;
-	disk_size *= format->sectors;
-	disk_size *= format->heads;
-	disk_size *= format->cyls;
+	uint32_t disk_size = 0x80 << fmt->sector_size;
+	disk_size *= fmt->sectors;
+	disk_size *= fmt->heads;
+	disk_size *= fmt->cyls;
 
 	dev->println("Creating new file, please wait...");
 	FsFile newfile;
@@ -765,9 +894,12 @@ CLI_COMMAND(cli_create) {
 }
 
 CLI_COMMAND(cli_mount) {
-	if (argc != 2) {
-		dev->println("Usage: mount <filename>");
+	if (argc != 3) {
+		dev->println("Usage: mount <filename> <format>");
 		dev->println("Mount an image file as the virtual disk");
+		return 10;
+	}
+	if (!open_sd_if_needed()) {
 		return 10;
 	}
 
@@ -776,9 +908,30 @@ CLI_COMMAND(cli_mount) {
 		return 10;
 	}
 
+	format = find_format_by_name(argv[2]);
+	if (format == NULL) {
+		dev->println("Format not known");
+		return 10;
+	}
+
+	create_track_store();
+
 	mounted_file = sd.open(argv[1], O_RDWR);
 	current_cyl = 0;
 	current_head = 0;
+
+	uint32_t bps = 0x80 << format->sector_size;
+
+	track_buffer = (uint8_t *)malloc(format->heads * format->sectors * bps);
+
+    for (int head = 0; head < format->heads; head++) {
+		int hoff = head * format->sectors;
+        for (int sector = 0; sector < format->sectors; sector++) {
+			cyl_data.track[head].sector[sector].data = track_buffer + ((hoff + sector) * bps);
+        }
+    }
+
+	CRC32_init(format->data_poly);
 
 	load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
 	return 0;
@@ -786,6 +939,8 @@ CLI_COMMAND(cli_mount) {
 
 
 void do_step() {
+	if (format == NULL) return;
+
 	digitalWrite(SEEK_DONE, LOW);
 	int dir = digitalRead(DIR);
 
@@ -796,29 +951,262 @@ void do_step() {
 	}
 
 	if (dir == 1) {
-		current_cyl --;
+		target_cyl --;
 	} else {
-		current_cyl ++;
+		target_cyl ++;
 	}
-	if (current_cyl >= format->cyls) {
-		current_cyl = 0;
+	if (target_cyl >= format->cyls) {
+		target_cyl = 0;
+	}
+}
+
+
+struct disk_format *find_format_by_name(const char *filename) {
+	for (struct format_list *scan = formats; scan; scan = scan->next) {
+		if (strcasecmp(filename, scan->fmt->name) == 0) {
+			return scan->fmt;
+		}
+	}
+	return NULL;
+}
+
+void append_format(struct disk_format *fmt) {
+	if (formats == NULL) {
+		formats = (struct format_list *)malloc(sizeof(struct format_list));
+		formats->fmt = fmt;
+		formats->next = NULL;
+		return;
 	}
 
-	load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
+	struct format_list *nf = (struct format_list *)malloc(sizeof(struct format_list));
+	nf->fmt = fmt;
+	nf->next = NULL;
 
-	digitalWrite(TRACK0, current_cyl == 0);
+	for (struct format_list *scan = formats; scan; scan = scan->next) {
+		if (scan->next == NULL) {
+			scan->next = nf;
+			return;
+		}
+	}
+}
 
-	digitalWrite(SEEK_DONE, HIGH);
+struct disk_format *load_format(const char *filename) {
+	FsFile file;
 
+	file.open(filename);
+	if (!file) {
+		return NULL; 
+	}
+
+	struct disk_format *fmt = (struct disk_format *)malloc(sizeof(struct disk_format));
+	memset(fmt, 0, sizeof(struct disk_format));
+
+	char l[1024];
+	while (file.fgets(l, 1024)) {
+		char *tl = trim(l);
+
+		if (strlen(tl) == 0) continue;
+		if (tl[0] == '#') continue;
+		if (tl[0] == ';') continue;
+		if (tl[0] == '!') continue;
+
+		char *key = strtok(tl, "=");
+		char *val = strtok(NULL, "=");
+
+		key = trim(key);
+		val = trim(val);
+
+		if (strcasecmp(key, "name") == 0) {
+			fmt->name = strdup(val);
+			continue;
+		}
+
+		if (strcasecmp(key, "comment") == 0) {
+			fmt->comment = strdup(val);
+			continue;
+		}
+
+		if (strcasecmp(key, "cyls") == 0) {
+			fmt->cyls = strtoul(val, NULL, 0);
+			continue;
+		}
+
+		if (strcasecmp(key, "heads") == 0) {
+			fmt->heads = strtoul(val, NULL, 0);
+			continue;
+		}
+
+		if (strcasecmp(key, "sectors") == 0) {
+			fmt->sectors = strtoul(val, NULL, 0);
+			continue;
+		}
+
+		if (strcasecmp(key, "sector_size") == 0) {
+			int ss = strtoul(val, NULL, 0);
+			switch (ss) {
+				case 128: fmt->sector_size = SECTOR_128; break;
+				case 256: fmt->sector_size = SECTOR_256; break;
+				case 512: fmt->sector_size = SECTOR_512; break;
+				case 1024: fmt->sector_size = SECTOR_1024; break;
+			}
+			continue;
+		}
+
+		if (strcasecmp(key, "index_width") == 0) {
+			fmt->index_width = strtoul(val, NULL, 0);
+			continue;
+		}
+
+		if (strcasecmp(key, "track_pregap") == 0) {
+			fmt->track_pregap = strtoul(val, NULL, 0);
+			continue;
+		}
+
+		if (strcasecmp(key, "track_postgap") == 0) {
+			fmt->track_postgap = strtoul(val, NULL, 0);
+			continue;
+		}
+
+		if (strcasecmp(key, "header_postgap") == 0) {
+			fmt->header_postgap = strtoul(val, NULL, 0);
+			continue;
+		}
+
+		if (strcasecmp(key, "data_postgap") == 0) {
+			fmt->data_postgap = strtoul(val, NULL, 0);
+			continue;
+		}
+
+		if (strcasecmp(key, "data_rate") == 0) {
+			fmt->data_rate = strtoul(val, NULL, 0);
+			continue;
+		}
+
+		if (strcasecmp(key, "header_crc") == 0) {
+			int ss = strtoul(val, NULL, 0);
+			switch (ss) {
+				case 16: fmt->flags |= OPT_HEADER_CRC16; break;
+				case 32: fmt->flags |= OPT_HEADER_CRC32; break;
+			}
+			continue;
+		}
+
+		if (strcasecmp(key, "data_crc") == 0) {
+			int ss = strtoul(val, NULL, 0);
+			switch (ss) {
+				case 16: fmt->flags |= OPT_DATA_CRC16; break;
+				case 32: fmt->flags |= OPT_DATA_CRC32; break;
+			}
+			continue;
+		}
+
+		if (strcasecmp(key, "header_poly") == 0) {
+			fmt->header_poly = strtoul(val, NULL, 0);
+			continue;
+		}
+
+		if (strcasecmp(key, "data_poly") == 0) {
+			fmt->data_poly = strtoul(val, NULL, 0);
+			continue;
+		}
+	}
+
+	file.close();
+	return fmt;
+}
+
+void load_formats(CLIClient *dev) {
+	char name[1024];
+	FsFile f;
+	FsFile dir;
+	if (open_sd_if_needed()) {
+		dir.open("/", O_RDONLY);
+		dir.rewind();
+		while (f.openNext(&dir, O_RDONLY)) {
+			f.getName(name, 1024);
+			f.close();
+			int s = strlen(name);
+			if (s > 4) {
+				if ((name[s - 4] == '.') &&
+					(name[s - 3] == 'f') &&
+					(name[s - 2] == 'm') &&
+					(name[s - 1] == 't')) {
+						dev->println(name);
+						struct disk_format *fmt = load_format(name);
+						if (fmt == NULL) {
+							dev->println("Error loading format");
+						} else {
+							append_format(fmt);
+						}
+				}
+			}
+		}
+		dir.close();
+	}
+}
+
+void factory_formats() {
+	struct disk_format *rd54 = (struct disk_format *)malloc(sizeof(struct disk_format));
+
+
+	rd54->name = strdup("RD54");
+	rd54->comment = strdup("DEC RD54 Hard Drive");
+	rd54->cyls=1225;
+	rd54->heads=15;
+	rd54->sectors=17;
+	rd54->sector_size=SECTOR_512;
+	rd54->index_width=10;
+	rd54->track_pregap=290;
+	rd54->track_postgap=1100;
+	rd54->header_postgap=41;
+	rd54->data_postgap=911;
+	rd54->data_rate=5000000;
+	rd54->flags = OPT_HEADER_CRC16 | OPT_DATA_CRC32;
+	rd54->header_poly=0x1021;
+	rd54->data_poly=0xa00805;
+
+	append_format(rd54);
+}
+
+CLI_COMMAND(cli_eject) {
+	if (mounted_file) {
+		mounted_file.close();
+		if (track_buffer) {
+			free(track_buffer);
+			track_buffer = NULL;
+		}
+	}
+	sd.end();
+	_sd_is_open = false;
+	dev->println("It is now safe to remove the SD card.");
+	return 0;
+}
+
+CLI_COMMAND(cli_load_formats) {
+	load_formats(dev);
+	return 0;
+}
+
+CLI_COMMAND(cli_seek) {
+	if (argc != 2) {
+		dev->println("Usage: seek <track>");
+		return 10;
+	}
+
+	int track = strtol(argv[1], NULL, 0);
+
+	if ((track < 0) || (track >= format->cyls)) {
+		dev->println("Track out of range");
+		return 10;
+	}
+
+	current_cyl = track;
+
+    load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
+	return 0;
 }
 
 void setup() {
-
-
-	if (!sd.begin(SdioConfig(SDIO_CLK, SDIO_CMD, SDIO_DAT0, 1.5))) {
-		sd.initErrorPrint();
-	}
-
     datastreamPgm.prepare(&pio, &sm, &offset);
     datastream_program_init(pio, sm, offset, DOUT);
     pio_sm_set_enabled(pio, sm, true);
@@ -829,27 +1217,34 @@ void setup() {
 	digitalWrite(13, HIGH);
 	Serial.begin(115200);
 
-	format = &RD54;
+	//format = &RD54;
+	factory_formats();
+	format = formats->fmt;
+	load_formats(console);
 	create_track_store();
+
+
 
 	format->slen = 0x80 << format->sector_size;
 	format->tlen = format->slen * format->sectors;
-
-
 	format->clock_div = F_CPU / format->data_rate / 20.0;
 	pio_sm_set_clkdiv(pio, sm, format->clock_div);
 
     multicore_launch_core1(second_cpu_thread);
 
-	Serial.begin(115200);
 	CLI.setDefaultPrompt("RTmFM> ");
-	CLI.addClient(Serial);
+	console = CLI.addClient(Serial);
 
 	CLI.addCommand("status", cli_status);
 	CLI.addCommand("set", cli_set);
 	CLI.addCommand("ls", cli_ls);
+	CLI.addCommand("dir", cli_ls);
 	CLI.addCommand("create", cli_create);
 	CLI.addCommand("mount", cli_mount);
+	CLI.addCommand("source", cli_source);
+	CLI.addCommand("eject", cli_eject);
+	CLI.addCommand("lf", cli_load_formats);
+	CLI.addCommand("seek", cli_seek);
 
 	pinMode(STEP, INPUT);
 	pinMode(DIR, INPUT);
@@ -858,10 +1253,33 @@ void setup() {
 	pinMode(TRACK0, OUTPUT);
 	digitalWrite(TRACK0, current_cyl == 0);
 
-	attachInterrupt(STEP, do_step, RISING);
+	attachInterrupt(STEP, do_step, FALLING);
+
+	if (open_sd_if_needed()) {
+		if (sd.exists("autoexec.bat")) {
+			execute_file("autoexec.bat", console);
+		}
+	}
 }
 
 void loop() {
 
 	CLI.process();
+
+	
+	cli();
+	uint32_t tmp_target = target_cyl;
+	sei();
+
+	if (tmp_target != current_cyl) {
+		while (tmp_target != current_cyl) {
+			current_cyl = tmp_target;
+			load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
+			digitalWrite(TRACK0, current_cyl == 0);
+			cli();
+			uint32_t tmp_target = target_cyl;
+			sei();
+		}
+		digitalWrite(SEEK_DONE, HIGH);
+	}
 }
