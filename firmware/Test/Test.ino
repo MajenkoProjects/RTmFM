@@ -113,14 +113,14 @@ struct raw_sector {
 	uint8_t *data;
 };
 
-struct track {
+struct head {
 	struct raw_sector *sector;
 };
 
 struct cylinder {
 	uint32_t heads;
 	uint32_t sectors;
-	struct track *track;
+	struct head *head;
 };
 
 
@@ -286,20 +286,16 @@ void second_cpu_thread() {
 			phase = 0;
 			load_sm = LOAD_IDLE;
 			if (running) {
-				Serial.println("Stopping state machine");
 				dma_channel_wait_for_finish_blocking(dma);
 				mutex_exit(&mfm_sm_running);
-				Serial.println("State machine stopped");
 			}
 			running = false;
 			continue;
 		}
 
 		if (!running) {
-			Serial.println("Starting state machine");
 			running = true;
 			mutex_enter_blocking(&mfm_sm_running);
-			Serial.println("State machine started");
 		}
 
 	    uint16_t hp = format->header_poly;
@@ -391,9 +387,11 @@ void second_cpu_thread() {
 					phase = PH_INDEX_START;
 				}
 				break;
+			default:
+				Serial.println("ERROR: BAD STATE MACHINE STATE");
+				phase = PH_INDEX_START;
+				break;
 		}
-
-
 
 		// Sector loading state machine
 
@@ -421,10 +419,10 @@ void second_cpu_thread() {
 				load->data[0] = 0;
 				load->data[1] = 0xA1;
 				load->data[2] = 0xFB;
-				load->data[515] = ((cyl_data.track[cs].sector[next_sector].data_crc >> 24) & 0xFF);
-				load->data[516] = ((cyl_data.track[cs].sector[next_sector].data_crc >> 16) & 0xFF);
-				load->data[517] = ((cyl_data.track[cs].sector[next_sector].data_crc >> 8) & 0xFF);
-				load->data[518] = (cyl_data.track[cs].sector[next_sector].data_crc & 0xFF);
+				load->data[515] = ((cyl_data.head[current_head].sector[next_sector].data_crc >> 24) & 0xFF);
+				load->data[516] = ((cyl_data.head[current_head].sector[next_sector].data_crc >> 16) & 0xFF);
+				load->data[517] = ((cyl_data.head[current_head].sector[next_sector].data_crc >> 8) & 0xFF);
+				load->data[518] = (cyl_data.head[current_head].sector[next_sector].data_crc & 0xFF);
 				load->data[519] = 0;
 				load_iter = 0;
 				load_sm = LOAD_HEADER_CS;
@@ -460,9 +458,8 @@ void second_cpu_thread() {
 				break;
 
 			case LOAD_DATA_MFM:
-
 				if ((load_iter >= 3) && (load_iter < 515)) {
-					load->data[load_iter] = mfm_encode(cyl_data.track[cs].sector[next_sector].data[load_iter - 3]);
+					load->data[load_iter] = mfm_encode(cyl_data.head[current_head].sector[next_sector].data[load_iter - 3]);
 				} else {
 					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
@@ -470,7 +467,7 @@ void second_cpu_thread() {
 				load_iter++;
 
 				if ((load_iter >= 3) && (load_iter < 515)) {
-					load->data[load_iter] = mfm_encode(cyl_data.track[cs].sector[next_sector].data[load_iter - 3]);
+					load->data[load_iter] = mfm_encode(cyl_data.head[current_head].sector[next_sector].data[load_iter - 3]);
 				} else {
 					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
@@ -478,7 +475,7 @@ void second_cpu_thread() {
 				load_iter++;
 
 				if ((load_iter >= 3) && (load_iter < 515)) {
-					load->data[load_iter] = mfm_encode(cyl_data.track[cs].sector[next_sector].data[load_iter - 3]);
+					load->data[load_iter] = mfm_encode(cyl_data.head[current_head].sector[next_sector].data[load_iter - 3]);
 				} else {
 					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
@@ -486,7 +483,7 @@ void second_cpu_thread() {
 				load_iter++;
 
 				if ((load_iter >= 3) && (load_iter < 515)) {
-					load->data[load_iter] = mfm_encode(cyl_data.track[cs].sector[next_sector].data[load_iter - 3]);
+					load->data[load_iter] = mfm_encode(cyl_data.head[current_head].sector[next_sector].data[load_iter - 3]);
 				} else {
 					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
@@ -494,7 +491,7 @@ void second_cpu_thread() {
 				load_iter++;
 
 				if ((load_iter >= 3) && (load_iter < 515)) {
-					load->data[load_iter] = mfm_encode(cyl_data.track[cs].sector[next_sector].data[load_iter - 3]);
+					load->data[load_iter] = mfm_encode(cyl_data.head[current_head].sector[next_sector].data[load_iter - 3]);
 				} else {
 					load->data[load_iter] = mfm_encode(load->data[load_iter]);
 				}
@@ -514,23 +511,27 @@ void second_cpu_thread() {
 				load->data[1] &= 0b1111111111011111;
 				load_sm = LOAD_IDLE;
 				break;
+			default:
+				Serial.println("ERROR: BAD LOADING SM STATUS");
+				load_sm = LOAD_IDLE;
+				break;
 		}
 	}
 }
 
 void create_track_store() {
-	if (cyl_data.track) {
+	if (cyl_data.head) {
 		for (int i = 0; i < cyl_data.heads; i++) {
-			if (cyl_data.track[i].sector) {
-				free(cyl_data.track[i].sector);
+			if (cyl_data.head[i].sector) {
+				free(cyl_data.head[i].sector);
 			}
 		}
-		free(cyl_data.track);
+		free(cyl_data.head);
 	}
 
-	cyl_data.track = (struct track *)malloc(sizeof(struct track) * format->heads);
+	cyl_data.head = (struct head *)malloc(sizeof(struct head) * format->heads);
 	for (int i = 0; i < format->heads; i++) {
-		cyl_data.track[i].sector = (struct raw_sector *)malloc(sizeof(struct raw_sector) * format->sectors);
+		cyl_data.head[i].sector = (struct raw_sector *)malloc(sizeof(struct raw_sector) * format->sectors);
 	}
 }
 
@@ -540,12 +541,12 @@ void calculate_sector_crc(int head, int sector, int sectorsize) {
 
 	crc = crc32(0xA1, crc, poly);
 	crc = crc32(0xFB, crc, poly);
-	uint8_t *data = cyl_data.track[head].sector[sector].data;
+	uint8_t *data = cyl_data.head[head].sector[sector].data;
 	for (int i = 0; i < (0x80 << sectorsize); i++) {
 		crc = crc32(data[i], crc, poly);
 	}
 
-	cyl_data.track[head].sector[sector].data_crc = crc;
+	cyl_data.head[head].sector[sector].data_crc = crc;
 }
 
 void load_cyl(FsFile file, uint32_t cyl, uint32_t heads, uint32_t sectors, uint32_t sectorsize) {
@@ -557,15 +558,13 @@ void load_cyl(FsFile file, uint32_t cyl, uint32_t heads, uint32_t sectors, uint3
 
 	uint32_t bufsz = heads * sectors * (0x80 << sectorsize);
 
-	Serial.printf("Loading %d bytes\n", bufsz);
-
     file.read(track_buffer, bufsz);
 
 	uint32_t rts = micros() - ts;
 
 	for (int head = 0; head < format->heads; head++) {
 		for (int sector = 0; sector < format->sectors; sector++) {
-			//calculate_sector_crc(head, sector, sectorsize);
+			calculate_sector_crc(head, sector, sectorsize);
 		}
 	}
 
@@ -961,10 +960,17 @@ CLI_COMMAND(cli_mount) {
 
 	track_buffer = (uint8_t *)malloc(bufsz);
 
+	if (!track_buffer) {
+		dev->println("Unable to allocate track buffer");
+		return 10;
+	}
+
     for (int head = 0; head < format->heads; head++) {
 		int hoff = head * format->sectors;
         for (int sector = 0; sector < format->sectors; sector++) {
-			cyl_data.track[head].sector[sector].data = track_buffer + ((hoff + sector) * bps);
+			uint8_t *doff = track_buffer + ((hoff + sector) * bps);
+			dev->printf("Offset %p < %p < %p\n", track_buffer, doff, track_buffer + bufsz);
+			cyl_data.head[head].sector[sector].data = doff;
         }
     }
 
@@ -1333,18 +1339,19 @@ void loop() {
 		if (tmp_target != current_cyl) {
 			while (tmp_target != current_cyl) {
 				current_cyl = tmp_target;
-				run_mfm_sm = false;
-				if (!mutex_enter_timeout_ms(&mfm_sm_running, 1000)) {
-					Serial.println("Timeout waiting for disk idle");
-				} else {
+//				run_mfm_sm = false;
+//				if (!mutex_enter_timeout_ms(&mfm_sm_running, 1000)) {
+//					run_mfm_sm = true;
+//					Serial.println("Timeout waiting for disk idle");
+//				} else {
 					load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
 					digitalWrite(TRACK0, current_cyl == 0);
 					cli();
-					uint32_t tmp_target = target_cyl;
+					tmp_target = target_cyl;
 					sei();
-					mutex_exit(&mfm_sm_running);
-					run_mfm_sm = true;
-				}
+//					mutex_exit(&mfm_sm_running);
+//					run_mfm_sm = true;
+//				}
 			}
 			digitalWrite(SEEK_DONE, HIGH);
 		}
