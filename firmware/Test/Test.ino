@@ -4,8 +4,9 @@
 #include <errno.h>
 #include <pico/platform.h>
 
-
 CLIClient *console;
+
+#define SLICE4 1
 
 #define SDIO_CLK	16
 #define SDIO_CMD	17
@@ -28,10 +29,10 @@ CLIClient *console;
 #define SEEK_DONE		9
 #define TRACK0			10
 
-#define HSEL0			4
-#define HSEL1			5
-#define HSEL2			6
-#define HSEL3			7
+#define HSEL0			2
+#define HSEL1			3
+#define HSEL2			4
+#define HSEL3			5
 
 static PIOProgram datastreamPgm(&datastream_program);
 
@@ -39,6 +40,41 @@ PIO pio;
 int sm;
 int offset;
 int dma;
+
+const uint8_t rd54_vs2k_uit[] = {
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x36,0x36,0x00,0x00,0x00,0xc9,0x00,
+	0x00,0x00,0xd8,0xbf,0x04,0x00,0x61,0x02,0x00,0x00,0x11,0x00,0x0f,0x00,0xc9,0x04,
+	0xc9,0x04,0xc9,0x04,0x00,0x00,0x01,0x00,0x07,0x00,0x08,0x00,0x36,0x40,0x64,0x25,
+	0x01,0x00,0x07,0x00,0x0e,0x00,0x10,0x00,0x10,0x00,0x05,0x00,0x28,0x00,0x0d,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x15,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xe6,0x70,
+};
 
 uint32_t loadtime;
 
@@ -62,7 +98,6 @@ volatile uint32_t target_cyl = 0;
 #define OPT_DATA_CRC_MASK 	0xFFFFFFF3
 
 SdFs sd;
-FsFile mounted_file;
 uint8_t *track_buffer;
 
 volatile bool run_mfm_sm = false;
@@ -71,6 +106,13 @@ mutex mfm_sm_running;
 struct disk_format {
 	char *name;
 	char *comment;
+	char *uit_file;
+	const uint8_t *uit_blob;
+	uint32_t uit_bloblen;
+	uint32_t uit_start;
+	uint32_t uit_cyls;
+	uint32_t uit_repeats;
+	uint32_t image_start;
 	uint16_t cyls;
 	uint8_t heads;
 	uint8_t sectors;
@@ -80,6 +122,7 @@ struct disk_format {
 	uint32_t track_postgap;
 	uint32_t header_postgap;
 	uint32_t data_postgap;
+	uint32_t sync_count;
 	float data_rate;
 	uint32_t flags;
 	uint32_t header_poly;
@@ -94,6 +137,157 @@ struct disk_format {
 	uint32_t idx_period;
 	float clock_div;
 };
+
+class more {
+	public:
+		constexpr bool operator()(uint32_t lhs, uint32_t rhs) const {
+			return lhs > rhs; // assumes that the implementation handles pointer total order
+		}
+};
+
+
+class slice {
+	public:
+		virtual void load_track(uint32_t track, uint8_t *buffer, size_t track_len) = 0;
+};
+
+class blob_slice : public slice {
+	private:
+		const uint8_t *_ptr;
+		uint32_t _len;
+		uint8_t _repeats;
+	public:
+
+		blob_slice(const uint8_t *ptr, uint32_t len, uint8_t repeats) {
+			_ptr = ptr;
+			_len = len;
+			_repeats = repeats;
+		}
+
+		void load_track(uint32_t track, uint8_t *buffer, size_t track_len) {
+			memset(buffer, 0, track_len);
+			for (int i = 0; i < _repeats; i++) {
+				memcpy(buffer + _len * i, _ptr, _len);
+			}
+		}
+
+};
+
+class file_slice : public slice {
+	private:
+		FsFile _file;
+		uint32_t _repeats;
+	public:
+
+		file_slice(const char *filename, uint32_t repeats) {
+			_file.open(filename);
+			_repeats = repeats;
+		}
+
+		~file_slice() {
+			_file.close();
+		}
+
+		// TODO
+		void load_track(uint32_t track, uint8_t *buffer, size_t track_len) {
+			memset(buffer, 0, track_len);
+			size_t nr_read = 0;
+			for (int i = 0; (i < _repeats) && (nr_read < track_len); i++) {
+				_file.seek(track * track_len);
+				nr_read += _file.read(buffer + nr_read, track_len - nr_read);
+			}
+		}
+
+};
+
+struct slice_list {
+	uint32_t start;
+	slice *slice_ptr;
+	struct slice_list *next;
+};
+
+class image {
+	private:
+		struct slice_list *slices;
+
+		uint32_t _bps, _spt, _tpc;
+
+		slice *find_slice(uint32_t track, uint32_t *offset) {
+			slice *sl = NULL;
+
+			for (struct slice_list *scan = slices; scan; scan = scan->next) {
+				if (scan->start <= track) {
+					sl = scan->slice_ptr;
+					if (offset != NULL) {
+						*offset = scan->start;
+					}
+				} else {
+					break;
+				}
+			}
+			return sl;
+		}
+
+		void purge_slices() {
+			struct slice_list *ptr;
+			struct slice_list *scan = slices;
+			while (scan) {
+				Serial.println("Deleted a slice"); delay(10);
+				ptr = scan->next;
+				delete(scan);
+				scan = ptr;
+			}
+		}
+
+	public:
+
+		image(uint32_t bytes_per_sector, uint32_t sectors_per_track, uint32_t tracks_per_cyl) {
+			_bps = bytes_per_sector;
+			_spt = sectors_per_track;
+			_tpc = tracks_per_cyl;
+			slices = NULL;
+		}
+
+		~image() {
+			purge_slices();
+		}
+
+		void load_track(uint32_t track, uint8_t *buffer) {
+			uint32_t offset;
+			slice *image = find_slice(track, &offset);
+			if (image != NULL) {
+				image->load_track(track - offset, buffer, _bps * _spt * _tpc);
+			}
+		}
+
+		void add_slice(uint32_t start, slice *slice_ptr) {
+			struct slice_list *newslice = (struct slice_list *)malloc(sizeof(struct slice_list));
+			newslice->start = start;
+			newslice->slice_ptr = slice_ptr;
+			newslice->next = NULL;
+			if (slices == NULL) {
+				slices = newslice;
+				return;
+			} 
+
+			for (struct slice_list *scan = slices; scan; scan = scan->next) {
+				if (scan->next == NULL) {
+					scan->next = newslice;
+					break;
+				}
+			}
+		}
+	
+};
+
+
+
+image *current_image;
+
+
+
+
+
 
 struct format_list {
 	struct disk_format *fmt;
@@ -164,6 +358,9 @@ uint16_t crc16(uint8_t val, uint16_t crc, uint16_t poly)
    return crc;
 }
 
+
+
+#if !defined(SLICE4)
 static uint32_t CRCTable[256];
 
 static void CRC32_init(uint32_t poly) {
@@ -187,6 +384,65 @@ static inline uint32_t crc32(uint8_t val, uint32_t crc, uint32_t poly) {
 	crc = ((crc << 8) ^ CRCTable[idx]);
 	return crc;
 }
+#else
+static uint32_t CRCTable[4][256];
+
+void CRC32_init(uint32_t poly) {
+    const uint32_t topbit = 0x80000000u;
+
+    for (int i = 0; i < 256; i++) {
+        uint32_t c = (uint32_t)i << 24;
+
+        for (int j = 0; j < 8; j++) {
+            if (c & topbit)
+                c = (c << 1) ^ poly;
+            else
+                c <<= 1;
+        }
+
+        CRCTable[0][i] = c;
+    }
+
+    // Generate slicing tables 1–3
+    for (int t = 1; t < 4; t++) {
+        for (int i = 0; i < 256; i++) {
+            uint32_t c = CRCTable[t - 1][i];
+            CRCTable[t][i] =
+                CRCTable[0][(c >> 24) & 0xFF] ^ (c << 8);
+        }
+    }
+}
+
+__attribute__((section(".time_critical")))
+uint32_t crc32_fast(const uint8_t *data, size_t len, uint32_t crc) {
+    while (len >= 4) {
+        uint32_t word =
+            ((uint32_t)data[0] << 24) |
+            ((uint32_t)data[1] << 16) |
+            ((uint32_t)data[2] << 8)  |
+            ((uint32_t)data[3]);
+
+        crc ^= word;
+
+        crc =
+            CRCTable[3][(crc >> 24) & 0xFF] ^
+            CRCTable[2][(crc >> 16) & 0xFF] ^
+            CRCTable[1][(crc >> 8)  & 0xFF] ^
+            CRCTable[0][ crc        & 0xFF];
+
+        data += 4;
+        len  -= 4;
+    }
+
+    // Remaining bytes
+    while (len--) {
+        uint8_t idx = (crc >> 24) ^ *data++;
+        crc = (crc << 8) ^ CRCTable[0][idx];
+    }
+
+    return crc;
+}
+#endif
 
 
 uint8_t last_bit = 0;
@@ -539,26 +795,38 @@ void calculate_sector_crc(int head, int sector, int sectorsize) {
 	uint32_t crc = 0xFFFFFFFF;
 	uint32_t poly = format->data_poly;
 
-	crc = crc32(0xA1, crc, poly);
-	crc = crc32(0xFB, crc, poly);
-	uint8_t *data = cyl_data.head[head].sector[sector].data;
-	for (int i = 0; i < (0x80 << sectorsize); i++) {
-		crc = crc32(data[i], crc, poly);
-	}
+	#if defined(SLICE4)
+		uint8_t hdr[2] = { 0xA1, 0xFB };
+		crc = crc32_fast(hdr, 2, crc);
+		uint8_t *data = cyl_data.head[head].sector[sector].data;
+		crc = crc32_fast(data, (0x80 << sectorsize), crc);
+
+/*
+		uint8_t *buf = (uint8_t *)alloca((0x80 << sectorsize) + 2);
+		buf[0] = 0xA1;
+		buf[1] = 0xFB;
+		uint8_t *data = cyl_data.head[head].sector[sector].data;
+		memcpy(buf + 2, data, 0x80 << sectorsize);
+
+		crc = crc32_fast(buf, (0x80 << sectorsize) + 2, crc);
+*/
+	#else	
+		crc = crc32(0xA1, crc, poly);
+		crc = crc32(0xFB, crc, poly);
+		uint8_t *data = cyl_data.head[head].sector[sector].data;
+		for (int i = 0; i < (0x80 << sectorsize); i++) {
+			crc = crc32(data[i], crc, poly);
+		}
+	#endif
 
 	cyl_data.head[head].sector[sector].data_crc = crc;
 }
 
-void load_cyl(FsFile file, uint32_t cyl, uint32_t heads, uint32_t sectors, uint32_t sectorsize) {
+void load_cyl(uint32_t cyl, uint32_t heads, uint32_t sectors, uint32_t sectorsize) {
 
 	uint32_t ts = micros();
 
-	uint32_t offset = cyl * heads * (0x80 << sectorsize);
-	file.seekSet(offset);
-
-	uint32_t bufsz = heads * sectors * (0x80 << sectorsize);
-
-    file.read(track_buffer, bufsz);
+	current_image->load_track(cyl, track_buffer);
 
 	uint32_t rts = micros() - ts;
 
@@ -657,14 +925,6 @@ CLI_COMMAND(cli_status) {
 		dev->print("header_poly="); dev->println(format->header_poly, HEX);
 		dev->print("data_poly="); dev->println(format->data_poly, HEX);
 		return 0;
-	}
-
-	dev->print("Mounted image:          ");
-	if (mounted_file) {
-		mounted_file.printName(dev);
-		dev->println();
-	} else {
-		dev->println("none");
 	}
 
 	float rpm = (format->data_rate / total_clocks) * 60.0;
@@ -937,8 +1197,9 @@ CLI_COMMAND(cli_mount) {
 
 	//while (mfm_sm_running);
 
-	if (mounted_file) {
-		mounted_file.close();
+	if (current_image) {
+		delete(current_image);
+		current_image = NULL;
 	}
 
 	format = find_format_by_name(argv[2]);
@@ -949,7 +1210,6 @@ CLI_COMMAND(cli_mount) {
 
 	create_track_store();
 
-	mounted_file = sd.open(argv[1], O_RDWR);
 	current_cyl = 0;
 	current_head = 0;
 
@@ -969,29 +1229,41 @@ CLI_COMMAND(cli_mount) {
 		int hoff = head * format->sectors;
         for (int sector = 0; sector < format->sectors; sector++) {
 			uint8_t *doff = track_buffer + ((hoff + sector) * bps);
-			dev->printf("Offset %p < %p < %p\n", track_buffer, doff, track_buffer + bufsz);
 			cyl_data.head[head].sector[sector].data = doff;
         }
     }
 
 	CRC32_init(format->data_poly);
 
-        dev->print("cyls="); dev->println(format->cyls);
-        dev->print("heads="); dev->println(format->heads);
-        dev->print("sectors="); dev->println(format->sectors);
-        dev->print("sector_size="); dev->println(0x80 << format->sector_size);
-        dev->print("track_pregap="); dev->println(format->track_pregap);
-        dev->print("track_postgap="); dev->println(format->track_postgap);
-        dev->print("header_postgap="); dev->println(format->header_postgap);
-        dev->print("data_postgap="); dev->println(format->data_postgap);
-        dev->print("data_rate="); dev->println(format->data_rate);
-        dev->print("header_crc="); dev->println((format->flags & OPT_HEADER_CRC16) ? "16" : (format->flags & OPT_HEADER_CRC32) ? "32" : "ERROR");
-        dev->print("data_crc="); dev->println((format->flags & OPT_DATA_CRC16) ? "16" : (format->flags & OPT_DATA_CRC32) ? "32" : "ERROR");
-        dev->print("header_poly="); dev->println(format->header_poly, HEX);
-        dev->print("data_poly="); dev->println(format->data_poly, HEX);
+	dev->println("Creating image"); delay(10);
 
-	load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
+	current_image = new image(0x80 << format->sector_size, format->sectors, format->heads);
 
+	dev->println("Adding UIT"); delay(10);
+
+	if (format->uit_blob) {
+		dev->println(" ... blob"); delay(10);
+		blob_slice *blob = new blob_slice(format->uit_blob, format->uit_bloblen, format->uit_repeats);
+		current_image->add_slice(format->uit_start, blob);
+		dev->println("ok"); delay(10);
+	} else if (format->uit_file) {
+		dev->println(" ... file"); delay(10);
+		file_slice *uit_file = new file_slice(format->uit_file, format->uit_repeats);
+		current_image->add_slice(format->uit_start, uit_file);
+		dev->println("ok"); delay(10);
+	}
+
+	dev->println("Adding main image slice"); delay(10);
+	
+	file_slice *file = new file_slice(argv[1], 1);
+
+	current_image->add_slice(format->image_start, file);
+
+	dev->println("Loading first track"); delay(10);
+
+	load_cyl(current_cyl, format->heads, format->sectors, format->sector_size);
+
+	dev->println("Completed"); delay(10);
 	mutex_exit(&mfm_sm_running);
 	run_mfm_sm = true;
 	return 0;
@@ -1214,8 +1486,15 @@ void factory_formats() {
 	struct disk_format *rd54 = (struct disk_format *)malloc(sizeof(struct disk_format));
 
 
-	rd54->name = strdup("RD54");
-	rd54->comment = strdup("DEC RD54 Hard Drive");
+	rd54->name = strdup("RD54-VS2K");
+	rd54->comment = strdup("DEC RD54 Hard Drive on VAXstation 2000");
+	rd54->uit_file = NULL;
+	rd54->uit_blob = rd54_vs2k_uit;
+	rd54->uit_bloblen = 512;
+	rd54->uit_start = 0;
+	rd54->uit_cyls = 1;
+	rd54->uit_repeats = 3;
+	rd54->image_start = 1;
 	rd54->cyls=1225;
 	rd54->heads=15;
 	rd54->sectors=17;
@@ -1225,6 +1504,7 @@ void factory_formats() {
 	rd54->track_postgap=1100;
 	rd54->header_postgap=41;
 	rd54->data_postgap=911;
+	rd54->sync_count=13;
 	rd54->data_rate=5000000;
 	rd54->flags = OPT_HEADER_CRC16 | OPT_DATA_CRC32;
 	rd54->header_poly=0x1021;
@@ -1235,12 +1515,8 @@ void factory_formats() {
 }
 
 CLI_COMMAND(cli_eject) {
-	if (mounted_file) {
-		mounted_file.close();
-		if (track_buffer) {
-			free(track_buffer);
-			track_buffer = NULL;
-		}
+	if (current_image) {
+		delete(current_image);
 	}
 	sd.end();
 	_sd_is_open = false;
@@ -1279,8 +1555,8 @@ void setup() {
 
 	pio->txf[sm] = mfm_encode(0x00);
 
-	pinMode(13, OUTPUT);
-	digitalWrite(13, HIGH);
+	pinMode(INDEX, OUTPUT);
+	digitalWrite(INDEX, HIGH);
 	Serial.begin(115200);
 
 	//format = &RD54;
@@ -1321,11 +1597,11 @@ void setup() {
 
 	attachInterrupt(STEP, do_step, FALLING);
 
-	if (open_sd_if_needed()) {
-		if (sd.exists("autoexec.bat")) {
-			execute_file("autoexec.bat", console);
-		}
-	}
+//	if (open_sd_if_needed()) {
+//		if (sd.exists("autoexec.bat")) {
+//			execute_file("autoexec.bat", console);
+//		}
+//	}
 }
 
 void loop() {
@@ -1336,23 +1612,26 @@ void loop() {
 		uint32_t tmp_target = target_cyl;
 		sei();
 
-		if (tmp_target != current_cyl) {
-			while (tmp_target != current_cyl) {
-				current_cyl = tmp_target;
-//				run_mfm_sm = false;
-//				if (!mutex_enter_timeout_ms(&mfm_sm_running, 1000)) {
-//					run_mfm_sm = true;
-//					Serial.println("Timeout waiting for disk idle");
-//				} else {
-					load_cyl(mounted_file, current_cyl, format->heads, format->sectors, format->sector_size);
-					digitalWrite(TRACK0, current_cyl == 0);
-					cli();
-					tmp_target = target_cyl;
-					sei();
-//					mutex_exit(&mfm_sm_running);
-//					run_mfm_sm = true;
-//				}
+		if (current_image) {
+
+			if (tmp_target != current_cyl) {
+				while (tmp_target != current_cyl) {
+					current_cyl = tmp_target;
+	//				run_mfm_sm = false;
+	//				if (!mutex_enter_timeout_ms(&mfm_sm_running, 1000)) {
+	//					run_mfm_sm = true;
+	//					Serial.println("Timeout waiting for disk idle");
+	//				} else {
+						load_cyl(current_cyl, format->heads, format->sectors, format->sector_size);
+						digitalWrite(TRACK0, current_cyl == 0);
+						cli();
+						tmp_target = target_cyl;
+						sei();
+	//					mutex_exit(&mfm_sm_running);
+	//					run_mfm_sm = true;
+	//				}
+				}
+				digitalWrite(SEEK_DONE, HIGH);
 			}
-			digitalWrite(SEEK_DONE, HIGH);
-		}
+	}
 }
