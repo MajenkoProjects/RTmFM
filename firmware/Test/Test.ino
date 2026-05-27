@@ -1,6 +1,6 @@
 #include <CLI.h>
-#include <SdFat.h>
 #include "datastream.h"
+#include <SdFat.h>
 #include <errno.h>
 #include <pico/platform.h>
 
@@ -40,6 +40,8 @@ PIO pio;
 int sm;
 int offset;
 int dma;
+
+float sd_clock = 1.3;
 
 const uint8_t rd54_vs2k_uit[] = {
 	0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x36,0x36,0x00,0x00,0x00,0xc9,0x00,
@@ -327,7 +329,7 @@ struct disk_format *format;
 bool _sd_is_open = false;
 bool open_sd_if_needed() {
 	if (_sd_is_open) return true;
-	if (!sd.begin(SdioConfig(SDIO_CLK, SDIO_CMD, SDIO_DAT0, 1.5))) {
+	if (!sd.begin(SdioConfig(SDIO_CLK, SDIO_CMD, SDIO_DAT0, sd_clock))) {
 		sd.initErrorPrint();
 		return false;;
 	}
@@ -1022,6 +1024,8 @@ CLI_COMMAND(cli_status) {
 
 CLI_COMMAND(cli_set) {
 
+	dev->println(argv[1]);
+
 	if (argc != 3) {
 		dev->println("Usage: set <item> <value>");
 
@@ -1120,7 +1124,6 @@ CLI_COMMAND(cli_set) {
 		format->auto_return = strncasecmp(argv[2], "Y", 1) == 0;
 		return 0;
 	}
-
 
 	dev->println("Possible items:");
 	dev->println("    track_pregap");
@@ -1547,6 +1550,18 @@ CLI_COMMAND(cli_seek) {
 	return 0;
 }
 
+CLI_COMMAND(cli_exec) {
+	char *cmd = argv[0]+1;
+
+    if (sd.exists(cmd)) {
+        execute_file(cmd, dev);
+		return 0;
+	} else {
+		dev->printf("%s not found\n", cmd);
+		return 10;
+	}
+}
+
 void setup() {
 	mutex_init(&mfm_sm_running);
     datastreamPgm.prepare(&pio, &sm, &offset);
@@ -1587,6 +1602,7 @@ void setup() {
 	CLI.addCommand("eject", cli_eject);
 	CLI.addCommand("lf", cli_load_formats);
 	CLI.addCommand("seek", cli_seek);
+	CLI.addPrefix("@", cli_exec);
 
 	pinMode(STEP, INPUT);
 	pinMode(DIR, INPUT);

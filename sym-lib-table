@@ -2,4 +2,5 @@
   (version 7)
   (lib (name "MCU_RaspberryPi_and_Boards")(type "KiCad")(uri "${KIPRJMOD}/3rdparty/KiCad-RP-Pico/RP-Pico Libraries/MCU_RaspberryPi_and_Boards.kicad_sym")(options "")(descr ""))
   (lib (name "2025-09-05_17-36-29")(type "KiCad")(uri "${KIPRJMOD}/2025-09-05_17-36-29.kicad_sym")(options "")(descr ""))
+  (lib (name "ResistorNetworks")(type "KiCad")(uri "${KIPRJMOD}/ResistorNetworks.kicad_sym")(options "")(descr ""))
 )
